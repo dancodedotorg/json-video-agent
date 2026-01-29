@@ -14,3 +14,42 @@
 - replace `cli_deploy.py` with the one from this directory
 
 ## Run the script
+
+
+# REVISION!
+This issue may be fixed, but now there may be a new one where you need to update the 2026 version of cli_deploy to get the xhtml2pdf to work. Here are notes from chatGPT:
+
+The Fix
+Search for the _DOCKERFILE_TEMPLATE string in your code (around line 65) and update it to include the apt-get commands. You must perform these steps as the root user (which is the default at the start of the Dockerfile) before the script switches to myuser.
+
+Update the template to look like this:
+
+```python
+_DOCKERFILE_TEMPLATE: Final[str] = """
+FROM python:3.11-slim
+WORKDIR /app
+
+# --- ADDED THIS SECTION ---
+# Install system dependencies required for pycairo and other C-based extensions
+USER root
+RUN apt-get update && apt-get install -y \\
+    gcc \\
+    pkg-config \\
+    libcairo2-dev \\
+    && rm -rf /var/lib/apt/lists/*
+# --------------------------
+
+# Create a non-root user
+RUN adduser --disabled-password --gecos "" myuser
+
+# Switch to the non-root user
+USER myuser
+
+# Set up environment variables - Start
+...
+"""
+```
+
+**AND THEN STILL FIX THE VERTEXAI HARDCODED 1 AS WELL!**
+
+Huh - also today I learned each agent file needs its own .env with vertexAI disabled
