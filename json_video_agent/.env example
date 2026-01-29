@@ -1,0 +1,4 @@
+GOOGLE_GENAI_USE_VERTEXAI=0
+GOOGLE_API_KEY=<API Key>
+GOOGLE_SERVICE_ACCOUNT_JSON = <base64 encoded JSON of Service Account JSON from Google Cloud Console>
+ELEVENLABS_API_KEY=<Elevenlabs API Key>
