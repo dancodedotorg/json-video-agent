@@ -147,85 +147,6 @@ def commit_initial_voiceover_scenes(json_str: str, tool_context: ToolContext) ->
         "initial_voiceover_scenes": json_obj
     }
 
-
-# Not currently used - wasn't working correctly. May need to debug if I continue to have issues with model output validation
-def validate_scenes_after_model(
-    callback_context: CallbackContext,
-    llm_response: LlmResponse,
-) -> Optional[LlmResponse]:
-    """
-    After-model callback:
-      - If a valid SceneList is present already => return None (do nothing)
-      - If we can clean/fix the model output into a valid SceneList => update the llm_response and return it
-      - If we can't produce valid SceneList => replace response with an error SceneList JSON and return it
-    """
-    # If the model returned a tool call or no text, don't touch it.
-    if not (llm_response.content and llm_response.content.parts):
-        return None
-
-    parts = llm_response.content.parts
-
-    for i, part in enumerate(parts):
-        # check if current part is already valid JSON that matches this agent's output schema
-        try:
-            # =================================================
-            # TODO: THIS PART IS WRONG! Need to do part to json first, and then try to extract from the text.
-            # I got my functions confused
-            # =================================================
-            scenes = SceneList.model_validate_json(part.text or "")
-            # If I'm still here: already valid JSON, so just return None to keep the flow going
-            logging.info(f"Response from agent-tool is already valid SceneList JSON.")
-            return None
-        except ValidationError:
-            pass
-        # if I made it here, the initial response wasn't valid JSON right away
-        # so now I can try to parse it as valid json
-        logging.warning(f"Response from agent-tool is not valid JSON - attempting recovery")
-        try:
-            candidate_json, raw = _part_to_candidate_json(part)
-        except Exception:
-            candidate_json, raw = None, getattr(part, "text", "")
-        
-        if not candidate_json:
-            # something didn't work, so get out of this loop and try the next part
-            # if this was the final part: then this goes to the fallback error logic
-            continue
-
-        try:
-            scenes = SceneList.model_validate_json(candidate_json)
-            # If I'm still here: candidate_json was valid logic, so need to update the LLM response with this.
-            # This snippet adapted from https://google.github.io/adk-docs/callbacks/types-of-callbacks/#after-model-callback
-            # Deep copy parts to avoid modifying original if other callbacks exist
-            logging.info(f"Successfully recovered valid SceneList JSON from model response.")
-            modified_parts = [copy.deepcopy(part) for part in llm_response.content.parts]
-            modified_parts[i].text = candidate_json # Update the text
-
-            new_response = LlmResponse(
-                content=Content(role="model", parts=modified_parts))
-            logging.info(f"[Callback] Returning modified response.")
-            return new_response # Return the modified response
-        except Exception as e:
-            # If I made it here, the candidate json still didn't confirm to the schema (or something else was wrong), so continue in the loop
-            continue
-
-    # No valid JSON found in any part
-    logging.error(f"Failed to recover valid SceneList JSON from model response - returning error message.")
-    error_message = """{
-        "scenes": [
-            {
-                "comment": "Error",
-                "speech": "There was a parsing error generating voiceover scenes. Try asking the model to generate again and it may work"
-            }
-        ]
-    }"""
-    new_response = LlmResponse(
-        content=Content(
-            role="model", 
-            parts=[Part(text=error_message)]
-        )
-    )
-    return new_response
-
 # ----------------------------
 # Concept Video Sub Agent as Tool
 # ----------------------------
@@ -390,3 +311,87 @@ try:
     logging.info(f"✅ Sub-agent '{voiceoever_scene_agent.name}' created using model '{GEMINI_MODEL}'.")
 except Exception as e:
     logging.error(f"❌ Failed to create sub-agent 'content_grounding_agent': {e}")
+
+
+
+
+
+
+
+# Not currently used - wasn't working correctly. May need to debug if I continue to have issues with model output validation
+def validate_scenes_after_model(
+    callback_context: CallbackContext,
+    llm_response: LlmResponse,
+) -> Optional[LlmResponse]:
+    """
+    After-model callback:
+      - If a valid SceneList is present already => return None (do nothing)
+      - If we can clean/fix the model output into a valid SceneList => update the llm_response and return it
+      - If we can't produce valid SceneList => replace response with an error SceneList JSON and return it
+    """
+    # If the model returned a tool call or no text, don't touch it.
+    if not (llm_response.content and llm_response.content.parts):
+        return None
+
+    parts = llm_response.content.parts
+
+    for i, part in enumerate(parts):
+        # check if current part is already valid JSON that matches this agent's output schema
+        try:
+            # =================================================
+            # TODO: THIS PART IS WRONG! Need to do part to json first, and then try to extract from the text.
+            # I got my functions confused
+            # =================================================
+            scenes = SceneList.model_validate_json(part.text or "")
+            # If I'm still here: already valid JSON, so just return None to keep the flow going
+            logging.info(f"Response from agent-tool is already valid SceneList JSON.")
+            return None
+        except ValidationError:
+            pass
+        # if I made it here, the initial response wasn't valid JSON right away
+        # so now I can try to parse it as valid json
+        logging.warning(f"Response from agent-tool is not valid JSON - attempting recovery")
+        try:
+            candidate_json, raw = _part_to_candidate_json(part)
+        except Exception:
+            candidate_json, raw = None, getattr(part, "text", "")
+        
+        if not candidate_json:
+            # something didn't work, so get out of this loop and try the next part
+            # if this was the final part: then this goes to the fallback error logic
+            continue
+
+        try:
+            scenes = SceneList.model_validate_json(candidate_json)
+            # If I'm still here: candidate_json was valid logic, so need to update the LLM response with this.
+            # This snippet adapted from https://google.github.io/adk-docs/callbacks/types-of-callbacks/#after-model-callback
+            # Deep copy parts to avoid modifying original if other callbacks exist
+            logging.info(f"Successfully recovered valid SceneList JSON from model response.")
+            modified_parts = [copy.deepcopy(part) for part in llm_response.content.parts]
+            modified_parts[i].text = candidate_json # Update the text
+
+            new_response = LlmResponse(
+                content=Content(role="model", parts=modified_parts))
+            logging.info(f"[Callback] Returning modified response.")
+            return new_response # Return the modified response
+        except Exception as e:
+            # If I made it here, the candidate json still didn't confirm to the schema (or something else was wrong), so continue in the loop
+            continue
+
+    # No valid JSON found in any part
+    logging.error(f"Failed to recover valid SceneList JSON from model response - returning error message.")
+    error_message = """{
+        "scenes": [
+            {
+                "comment": "Error",
+                "speech": "There was a parsing error generating voiceover scenes. Try asking the model to generate again and it may work"
+            }
+        ]
+    }"""
+    new_response = LlmResponse(
+        content=Content(
+            role="model", 
+            parts=[Part(text=error_message)]
+        )
+    )
+    return new_response

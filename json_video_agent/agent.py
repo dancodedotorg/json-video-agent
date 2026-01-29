@@ -6,8 +6,11 @@ from google.adk.agents.callback_context import CallbackContext
 # Shared Imports
 from .shared.constants import GEMINI_MODEL
 from .shared.tools import list_saved_artifacts, list_current_state
+
+# Subagents
 from .content_grounding_agent.agent import content_grounding_agent
 from .voiceover_scene_agent.agent import voiceover_scene_agent
+from .audio_tags_agent.agent import audio_tags_agent
 
 # Setup logging across agents
 import logging
@@ -34,6 +37,7 @@ Your primary task is to orchestrate the creation of a tutorial video. Your role 
 **Available Sub-Agents:**
 *   `content_grounding_agent`: Gathers and processes user-provided resources for the tutorial video.
 *   `voiceover_scene_agent`: Generates voiceover scripts based on the grounded content.
+*   `audio_tags_agent`: Augments the voiceover with audio tags for AI voice generation
 
 **Core Tasks and Conversational Workflow:**
 
@@ -61,7 +65,7 @@ root_agent = Agent(
     description=DESCRIPTION,
     instruction=INSTRUCTION,
     tools=[list_saved_artifacts, list_current_state],
-    sub_agents=[content_grounding_agent, voiceover_scene_agent],
+    sub_agents=[content_grounding_agent, voiceover_scene_agent, audio_tags_agent],
     before_agent_callback=setup_state,
 )
 logging.info(f"✅ Agent '{root_agent.name}' creating used model '{GEMINI_MODEL}'.")
