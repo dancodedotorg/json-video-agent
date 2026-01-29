@@ -1,6 +1,7 @@
 import logging
 from google.adk.tools import ToolContext
 import re
+from google.genai.types import Part, Blob
 
 async def list_saved_artifacts(tool_context: ToolContext) -> dict:
     """List all saved artifacts."""
@@ -18,6 +19,15 @@ def list_current_state(tool_context: ToolContext) -> dict:
         "status": "success",
         **current_state
     }
+
+def make_part(type: str, content: bytes) -> dict:
+    """Helper to create an artifact part dict."""
+    return Part(
+        inline_data=Blob(
+            mime_type=type,
+            data=content,
+        )
+    )
 
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
 
@@ -39,27 +49,3 @@ def _maybe_extract_json(text: str) -> str:
 
     # Otherwise just return; caller will try json parsing and fail if it's not pure JSON
     return text
-
-def _part_to_candidate_json(part) -> tuple[str | None, str | None]:
-    """
-    Returns (candidate_json_str, raw_text_for_debug) if this part contains JSON,
-    else (None, None).
-    """
-    # 1) JSON directly attached as inline_data (best case)
-    inline = getattr(part, "inline_data", None)
-    if inline and getattr(inline, "mime_type", None) == "application/json":
-        data = getattr(inline, "data", None)
-        if isinstance(data, (bytes, bytearray)):
-            s = data.decode("utf-8", errors="replace")
-            return s, s
-        if isinstance(data, str):
-            return data, data
-
-    # 2) JSON embedded in text
-    text = getattr(part, "text", None) or ""
-    if text.strip():
-        candidate = _maybe_extract_json(text)
-        if candidate:
-            return candidate, text
-
-    return None, None
