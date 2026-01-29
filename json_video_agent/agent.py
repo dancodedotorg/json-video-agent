@@ -7,6 +7,7 @@ from google.adk.agents.callback_context import CallbackContext
 from .shared.constants import GEMINI_MODEL
 from .shared.tools import list_saved_artifacts, list_current_state
 from .content_grounding_agent.agent import content_grounding_agent
+from .voiceover_scene_agent.agent import voiceover_scene_agent
 
 # Setup logging across agents
 import logging
@@ -48,8 +49,10 @@ Your primary task is to orchestrate the creation of a tutorial video. Your role 
 *   **Be Patient:** The user may want to make many changes. Be patient and accommodating. """
 
 def setup_state(callback_context: CallbackContext):
-    callback_context.state["scenes"] = []
-    callback_context.state["grounding_artifacts"] = []
+    if "scenes" not in callback_context.state:
+        callback_context.state["scenes"] = []
+    if "grounding_artifacts" not in callback_context.state:
+        callback_context.state["grounding_artifacts"] = []
 
 # Create agent
 root_agent = Agent(
@@ -58,7 +61,7 @@ root_agent = Agent(
     description=DESCRIPTION,
     instruction=INSTRUCTION,
     tools=[list_saved_artifacts, list_current_state],
-    sub_agents=[content_grounding_agent],
+    sub_agents=[content_grounding_agent, voiceover_scene_agent],
     before_agent_callback=setup_state,
 )
 logging.info(f"✅ Agent '{root_agent.name}' creating used model '{GEMINI_MODEL}'.")

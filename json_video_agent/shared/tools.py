@@ -14,11 +14,20 @@ async def list_saved_artifacts(tool_context: ToolContext) -> dict:
 def list_current_state(tool_context: ToolContext) -> dict:
     """List the current session state."""
     current_state = tool_context.state.to_dict()
-    logging.info(f"Current state: {current_state}")
+    # logging.info(f"Current state: {current_state}")
     return {
         "status": "success",
         **current_state
     }
+
+def list_grounding_artifacts(tool_context: ToolContext) -> dict:
+    """List the grounding artifacts from the current session state."""
+    grounding_artifacts = tool_context.state.get("grounding_artifacts", [])
+    return {
+        "count": len(grounding_artifacts),
+        "grounding_artifacts": grounding_artifacts
+    }
+
 
 def make_part(type: str, content: bytes) -> dict:
     """Helper to create an artifact part dict."""
@@ -49,3 +58,27 @@ def _maybe_extract_json(text: str) -> str:
 
     # Otherwise just return; caller will try json parsing and fail if it's not pure JSON
     return text
+
+def _part_to_candidate_json(part) -> tuple[str | None, str | None]:
+    """
+    Returns (candidate_json_str, raw_text_for_debug) if this part contains JSON,
+    else (None, None).
+    """
+    # 1) JSON directly attached as inline_data (best case)
+    inline = getattr(part, "inline_data", None)
+    if inline and getattr(inline, "mime_type", None) == "application/json":
+        data = getattr(inline, "data", None)
+        if isinstance(data, (bytes, bytearray)):
+            s = data.decode("utf-8", errors="replace")
+            return s, s
+        if isinstance(data, str):
+            return data, data
+
+    # 2) JSON embedded in text
+    text = getattr(part, "text", None) or ""
+    if text.strip():
+        candidate = _maybe_extract_json(text)
+        if candidate:
+            return candidate, text
+
+    return None, None
