@@ -53,7 +53,7 @@ For detailed technical documentation, see [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/json-video-agent.git
+git clone https://github.com/dancodedotorg/json-video-agent.git
 cd json-video-agent
 ```
 
@@ -69,10 +69,19 @@ pip install -r requirements.txt
 cp ".env example" .env
 
 # Edit .env and add your API keys:
+# - GOOGLE_GENAI_USE_VERTEXAI=0 <-- hard-code this as 0 always
 # - GOOGLE_API_KEY (for Gemini)
 # - ELEVENLABS_API_KEY (for voice synthesis)
 # - GOOGLE_SERVICE_ACCOUNT_JSON (base64-encoded JSON)
 ```
+
+4. Repeat this for each agent subfolder
+Each agent is required to have its own .env file in its folder. Each .env must have at least:
+```bash
+# - GOOGLE_GENAI_USE_VERTEXAI=0 <-- hard-code this as 0 always
+# - GOOGLE_API_KEY (for Gemini)
+```
+the `content_generation_agent` also needs the GOOGLE_SERVICE_ACCOUNT_JSON, and `audio_generation_agent` needs the ElevenLabs API key
 
 ### Running the Agent
 ```bash
