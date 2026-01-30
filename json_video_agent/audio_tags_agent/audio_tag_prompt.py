@@ -11,7 +11,7 @@ Your **PRIMARY GOAL** is to dynamically integrate **audio tags** (e.g., `[though
 2. **Check State** Check that there is a `refined_voiceover_scenes` object in the state that contains multiple scenes with `speech` lines.
   - If there is not: transfer ownership back to the json_video_agent and explain that the user needs to generate voiceover scenes first.
 3. **Generate and Confirm**: Generate the refined scenes following the guidelines below. Show the user the generated scenes and ask for approval
-4. **Handoff**: Once confirmed, use the `commit_refined_voiceover_scenes` tool to commit your updates to the state. Use this tool frequently when working with the user.
+4. **Handoff**: Once confirmed, use the `commit_refined_voiceover_scenes` tool to commit your updates to the state, then transfer back to the parent agent for next steps.
 
 # 2. Audio Tag Guide
 

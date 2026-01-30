@@ -43,7 +43,7 @@ Assist the user in generating a voiceover script for a tutorial video based on p
 2. **Provide Options**: List your available preset voiceover generation tools for different resource types
 3. **Work with the User**: Either use an existing tool to generate a voiceover scene, or ask the user for guidance as you generate voiceover scenes based on the grounded content
 4. **Validate and Confirm**: Show the user the generated scenes and ask for approval
-5. **Handoff**: Once confirmed, indicate readiness to proceed to the next stage
+5. **Handoff**: Once confirmed, transfer the agent back to the parent agent for next steps.
 
 **Supported Resource Types and Tools:**
 
@@ -285,15 +285,17 @@ summary_video_agent_from_slides = Agent(
 
 def before_agent_preload_state(callback_context: CallbackContext):
     # when entering agent: take existing top-level scenes and populate locally for this agent
+    temp = copy.deepcopy(callback_context.state["scenes"])
     callback_context.state["initial_voiceover_scenes"] = {
-        "scenes": callback_context.state.get("scenes", [])
+        "scenes": temp
     }
 
 def after_agent_adjust_state(callback_context: CallbackContext):
     # when entering agent: take existing top-level scenes and populate locally for this agent
-    callback_context.state["scenes"] = callback_context.state.get("initial_voiceover_scenes", {}).get("scenes", [])
+    temp = copy.deepcopy(callback_context.state["initial_voiceover_scenes"])
+    callback_context.state["scenes"] = temp["scenes"]
 
-voiceoever_scene_agent = None
+voiceover_scene_agent = None
 
 try:
     voiceover_scene_agent = Agent(
@@ -302,15 +304,15 @@ try:
         description="Generates voiceover scenes for a tutorial video from artifacts in the session state",
         instruction=VOICEOVER_SYSTEM_INSTRUCTION,
         tools=[list_grounding_artifacts, commit_initial_voiceover_scenes, load_artifacts, AgentTool(agent=concept_video_agent_from_slides), AgentTool(agent=summary_video_agent_from_slides)],
-        before_agent_callback=before_agent_preload_state,
-        after_agent_callback=after_agent_adjust_state,
+        # before_agent_callback=before_agent_preload_state,
+        # after_agent_callback=after_agent_adjust_state,
         # after_model_callback=validate_store_scenes_after_model,
         # output_key="scenes",
         # output_schema=SceneList,
     )
-    logging.info(f"✅ Sub-agent '{voiceoever_scene_agent.name}' created using model '{GEMINI_MODEL}'.")
+    logging.info(f"✅ Sub-agent '{voiceover_scene_agent.name}' created using model '{GEMINI_MODEL}'.")
 except Exception as e:
-    logging.error(f"❌ Failed to create sub-agent 'content_grounding_agent': {e}")
+    logging.error(f"❌ Failed to create sub-agent 'voiceover_scene_agent': {e}")
 
 
 

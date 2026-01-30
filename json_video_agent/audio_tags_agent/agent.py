@@ -12,6 +12,7 @@ from .audio_tag_prompt import AUDIO_TAGS_PROMPT, AUDIO_TAGS_DESCRIPTION
 from typing import Any, Dict, List
 from pydantic import BaseModel, Field, ValidationError, ConfigDict
 import logging
+import copy
 
 # --- Structured Output ---
 # 1. Define the structure for a single JSON object (an item in the list)
@@ -77,13 +78,15 @@ def commit_refined_voiceover_scenes(json_str: str, tool_context: ToolContext) ->
 
 def before_agent_preload_state(callback_context: CallbackContext):
     # when entering agent: take existing top-level scenes and populate locally for this agent
+    temp = copy.deepcopy(callback_context.state["scenes"])
     callback_context.state["refined_voiceover_scenes"] = {
-        "scenes": callback_context.state.get("scenes", [])
+        "scenes": temp
     }
 
 def after_agent_adjust_state(callback_context: CallbackContext):
     # when entering agent: take existing top-level scenes and populate locally for this agent
-    callback_context.state["scenes"] = callback_context.state.get("refined_voiceover_scenes", {}).get("scenes", [])
+    temp = copy.deepcopy(callback_context.state["refined_voiceover_scenes"])
+    callback_context.state["scenes"] = temp["scenes"]
 
 
 audio_tags_agent = None
@@ -95,8 +98,8 @@ try:
         description=AUDIO_TAGS_DESCRIPTION,
         instruction=AUDIO_TAGS_PROMPT,
         tools=[list_grounding_artifacts, list_current_state, commit_refined_voiceover_scenes],
-        before_agent_callback=before_agent_preload_state,
-        after_agent_callback=after_agent_adjust_state,
+        # before_agent_callback=before_agent_preload_state,
+        # after_agent_callback=after_agent_adjust_state,
     )   
     logging.info(f"✅ Sub-agent '{audio_tags_agent.name}' created using model '{GEMINI_MODEL}'.")
 except Exception as e:
