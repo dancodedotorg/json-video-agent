@@ -1,5 +1,6 @@
 # Google ADK Imports
 from google.adk.agents.llm_agent import Agent
+from google.adk.agents.sequential_agent import SequentialAgent
 from google.adk.tools import load_artifacts
 from google.adk.models import LlmResponse
 from google.adk.agents.callback_context import CallbackContext
@@ -9,7 +10,7 @@ from google.adk.tools import ToolContext
 
 # Shared imports
 from ..shared.constants import GEMINI_MODEL
-from ..shared.tools import list_grounding_artifacts, _part_to_candidate_json, _maybe_extract_json
+from ..shared.tools import list_grounding_artifacts, _part_to_candidate_json
 
 # Utilities
 import logging
@@ -18,7 +19,20 @@ from pydantic import BaseModel, Field, ValidationError, ConfigDict
 import copy
 
 # ----------------------------
-# Output schema
+# Update schemas (for sequential agent pattern)
+# ----------------------------
+class VoiceoverUpdate(BaseModel):
+    """Patch for adding voiceover properties to a scene."""
+    index: int = Field(description="Index into the top-level state['scenes'] array")
+    comment: str = Field(description="A 1-sentence metadata comment for the scene")
+    speech: str = Field(description="The voiceover speech for this particular scene")
+
+class VoiceoverUpdateList(BaseModel):
+    """List of voiceover updates for multiple scenes."""
+    updates: List[VoiceoverUpdate]
+
+# ----------------------------
+# Legacy schemas (for preset sub-agents that return full scene lists)
 # ----------------------------
 class Scene(BaseModel):
     """A single scene containing a comment and speech"""
@@ -26,16 +40,15 @@ class Scene(BaseModel):
     comment: str = Field(description="A 1-sentence metadata comment for the generated scene")
     speech: str = Field(description="The voiceover speech for this particular scene")
 
-
 class SceneList(BaseModel):
     """A list of one or more scenes."""
     model_config = ConfigDict(extra="allow")
     scenes: List[Scene]
 
 
-VOICEOVER_SYSTEM_INSTRUCTION = """ Role:** Voiceover Scene Agent
+VOICEOVER_SYSTEM_INSTRUCTION = """**Role:** Voiceover Scene Agent
 
-**Primary Objective:** 
+**Primary Objective:**
 Assist the user in generating a voiceover script for a tutorial video based on previously grounded content. You will analyze the provided resources, break them down into manageable scenes, and create clear, concise voiceover narrations for each scene. You also have several preset voiceover tools that users can use for specific types of videos.
 
 **Workflow Overview:**
@@ -50,37 +63,36 @@ Assist the user in generating a voiceover script for a tutorial video based on p
 1. **Concept Video From Slides**
    - Tool: `concept_video_agent_from_slides`
    - Expected input: A PDF file derived from Google Slides
-   - Output: A JSON object containing an array of scenes with voiceover narrations for each slide
-   - How to use: 
+   - Output: Adds voiceover comment and speech to state['scenes'] for each slide
+   - How to use:
      - Use the `list_grounding_artifacts` tool to list all available grounding artifacts
      - Have the user select which PDF artifact they want to use
-     - Provide the actual PDF content to the `concept_video_agent_from_slides` tool to generate scenes
+     - Call the `concept_video_agent_from_slides` sub-agent to generate scenes
 
 2. **Summary Video From Slides**
     - Tool: `summary_video_agent_from_slides`
     - Expected input: A PDF file derived from Google Slides
-    - Output: A JSON object containing an array of scenes that summarize the key concepts from the slide deck
-    - How to use: 
+    - Output: Adds voiceover scenes that summarize the key concepts to state['scenes']
+    - How to use:
       - Use the `list_grounding_artifacts` tool to list all available grounding artifacts
       - Have the user select which PDF artifact they want to use
-      - Provide the actual PDF content to the `summary_video_agent_from_slides` tool to generate scenes
+      - Call the `summary_video_agent_from_slides` sub-agent to generate scenes
 
 3. **Co-Create Together**
-    - No specific tool; you will generate scenes directly in conversation with the user
+    - Sub-agent: `voiceover_pipeline_agent`
     - Expected input: Any combination of grounded content artifacts
-    - Output: A JSON object containing an array of scenes with voiceover narrations
+    - Output: Adds voiceover comment and speech to state['scenes']
     - How to use:
       - Use the `list_grounding_artifacts` tool to list all available grounding artifacts
       - Work with the user to decide how to break down the content into scenes
-      - Generate voiceover narrations for each scene based on the grounded content
-      - Use the `commit_initial_voiceover_scenes` tool frequently to save the generated scenes to state
+      - Transfer to the `voiceover_pipeline_agent` to collaboratively generate voiceover narrations
       
 
 **State Management:**
 
-All artifacts you create are tracked in the agent state:
+All data is tracked in the unified agent state:
 - `grounding_artifacts`: List of all content artifacts
-- `initial_voiceover_scenes`: Will contain the final generated scenes for the voiceover video. This is populated by your tools, or when you are done working with your user
+- `scenes`: Unified array where each scene will have 'comment' and 'speech' properties added by this agent
 
 
 
@@ -94,58 +106,114 @@ User: "I want to use an existing Google Slides presentation for my tutorial vide
 You: [use list_grounding_artifacts tool] "Great - here are the artifacts I have available: {...list of grounding_artifacts...}"
 You: "Which one would you like to use for the voiceover script?"
 User: "The one titled 'Intro to Python'."
-You: [call `concept_video_agent_from_slides` tool with the selected PDF artifact reference]
+You: [transfer to `concept_video_agent_from_slides` sub-agent with the selected PDF artifact reference]
 
 **Completion Criteria:**
 You're done when:
 1. All user-requested resources have been processed
 2. User confirms this is all the content they need
-3. Used the `commit_initial_voiceover_scenes` tool to save the final scenes to state
+3. Scenes have been added to state['scenes'] with voiceover content
 4. Once this is done, transfer back to the json_video_agent
 
 **Don't Forget:** Start by greeting the user and explaining the pre-made tools you have available, then ask if they want to use one of those or co-create these scenes with you.
 """
 
-def commit_initial_voiceover_scenes(json_str: str, tool_context: ToolContext) -> Dict[str, Any]:
-    """Updates the session state with the in-progress scenes being generated between the agent and the user.
-    
-    This tool commits the in-progress voiceover scenes being generated by the agent to the session state under 'initial_voiceover_scenes'.
-    **Input Format:** The json_str input must conform to the SceneList schema, containing an array of scenes:
-    {
-      "scenes": [
-        {
-          "comment": "A brief comment about the scene",
-          "speech": "The voiceover speech for this scene."
-        },
-        ...
-      ]
-    }
-    do NOT include any preamble, such as ```json ``` or explanations - ONLY provide the JSON object.
+# ----------------------------
+# Sequential Agent Pattern: Apply Updates Function
+# ----------------------------
 
-    Args:
-        json_str: The voiceover scenes as a str, conforming to the SceneList schema above.
-        tool_context: ADK ToolContext automatically injected at runtime for state/artifact management
+def apply_voiceover_updates(tool_context: ToolContext) -> Dict[str, Any]:
+    """
+    Merge state['voiceover_updates'] into state['scenes'] by index.
     
-    Returns:
-        Dict containing a status (str): "success" or "error", and additional information about the session state"""
-    candidate_json = _maybe_extract_json(json_str)
-    # Validate the JSON against the SceneList schema
-    try:
-        scenes = SceneList.model_validate_json(candidate_json)
-    except ValidationError as e:
-        return {
-            "status": "error",
-            "message": f"Provided JSON does not conform to SceneList schema: {e}"
-        }
+    This function reads voiceover updates (comment, speech) and applies them
+    to the scenes array, creating new scene objects as needed.
 
-    # If we made it here: it worked!
-    json_obj = scenes.model_dump()
-    tool_context.state["initial_voiceover_scenes"] = json_obj
-    return {
-        "status": "success",
-        "message": "Initial voiceover scenes committed to state.",
-        "initial_voiceover_scenes": json_obj
-    }
+    Expects:
+      - tool_context.state['voiceover_updates']: {"updates":[{"index":int,"comment":str,"speech":str}, ...]}
+      
+    Updates:
+      - tool_context.state['scenes']: List[dict] with comment and speech added
+    """
+
+    if "voiceover_updates" not in tool_context.state:
+        return {"status": "error", "message": "Missing 'voiceover_updates' in state; generate updates first"}
+
+    scenes = copy.deepcopy(tool_context.state.get("scenes", []))
+    payload = copy.deepcopy(tool_context.state["voiceover_updates"])
+    updates = payload.get("updates") or []
+
+    updated = 0
+    created = 0
+    skipped: List[Dict[str, Any]] = []
+
+    for u in updates:
+        # u may be a dict (from state) or a pydantic model
+        idx = u.get("index") if isinstance(u, dict) else getattr(u, "index", None)
+        comment = u.get("comment") if isinstance(u, dict) else getattr(u, "comment", None)
+        speech = u.get("speech") if isinstance(u, dict) else getattr(u, "speech", None)
+
+        if not isinstance(idx, int) or not isinstance(comment, str) or not isinstance(speech, str):
+            skipped.append({"update": u, "reason": "invalid update shape"})
+            continue
+
+        # Extend scenes array if needed
+        while len(scenes) <= idx:
+            scenes.append({})
+            created += 1
+
+        scenes[idx]["comment"] = comment
+        scenes[idx]["speech"] = speech
+        updated += 1
+
+    tool_context.state["scenes"] = scenes
+    tool_context.state["voiceover_updates__applied"] = {"updated": updated, "created": created, "skipped": skipped}
+
+    return {"status": "success", "updated": updated, "created": created, "skipped": skipped}
+
+# ----------------------------
+# Helper: Convert SceneList to VoiceoverUpdateList
+# ----------------------------
+
+def _convert_scenes_to_updates(callback_context: CallbackContext):
+    """
+    After a preset agent returns a full SceneList, convert it to VoiceoverUpdateList
+    and apply the updates directly to state['scenes'].
+    
+    This allows preset agents to return full scenes while maintaining compatibility
+    with the sequential update pattern.
+    """
+    # Check if we have a full scene list (from preset agents)
+    if "preset_scene_output" in callback_context.state:
+        scene_list = callback_context.state["preset_scene_output"]
+        scenes_output = scene_list.get("scenes", [])
+        
+        # Get existing scenes array or create new one
+        scenes = copy.deepcopy(callback_context.state.get("scenes", []))
+        
+        # Apply each scene directly to the scenes array
+        for idx, scene in enumerate(scenes_output):
+            # Extend scenes array if needed
+            while len(scenes) <= idx:
+                scenes.append({})
+            
+            # Apply comment and speech
+            scenes[idx]["comment"] = scene.get("comment", "")
+            scenes[idx]["speech"] = scene.get("speech", "")
+        
+        # Update state
+        callback_context.state["scenes"] = scenes
+        logging.info(f"Applied {len(scenes_output)} preset scenes to state['scenes']")
+        
+        # Also store in updates format for consistency
+        updates = []
+        for idx, scene in enumerate(scenes_output):
+            updates.append({
+                "index": idx,
+                "comment": scene.get("comment", ""),
+                "speech": scene.get("speech", "")
+            })
+        callback_context.state["voiceover_updates"] = {"updates": updates}
 
 # ----------------------------
 # Concept Video Sub Agent as Tool
@@ -200,8 +268,8 @@ concept_video_agent_from_slides = Agent(
     instruction=CONCEPT_VIDEO_INSTRUCTIONS,
     tools=[load_artifacts],
     output_schema=SceneList,
-    output_key="initial_voiceover_scenes",
-    #after_model_callback=validate_scenes_after_model,
+    output_key="preset_scene_output",  # Changed to temp key
+    after_agent_callback=_convert_scenes_to_updates,  # Convert to updates
 )
 
 # ----------------------------
@@ -273,27 +341,60 @@ summary_video_agent_from_slides = Agent(
     instruction=SUMMARY_VIDEO_INSTRUCTIONS,
     tools=[load_artifacts],
     output_schema=SceneList,
-    output_key="initial_voiceover_scenes",
-    #after_model_callback=validate_scenes_after_model,
+    output_key="preset_scene_output",  # Changed to temp key
+    after_agent_callback=_convert_scenes_to_updates,  # Convert to updates
 )
 
-
-
 # ----------------------------
-# Agent
+# Sequential Agent Pattern: Generate and Apply Agents
 # ----------------------------
 
-def before_agent_preload_state(callback_context: CallbackContext):
-    # when entering agent: take existing top-level scenes and populate locally for this agent
-    temp = copy.deepcopy(callback_context.state["scenes"])
-    callback_context.state["initial_voiceover_scenes"] = {
-        "scenes": temp
-    }
+VOICEOVER_GENERATE_INSTRUCTION = """
+You generate voiceover scripts for tutorial video scenes.
 
-def after_agent_adjust_state(callback_context: CallbackContext):
-    # when entering agent: take existing top-level scenes and populate locally for this agent
-    temp = copy.deepcopy(callback_context.state["initial_voiceover_scenes"])
-    callback_context.state["scenes"] = temp["scenes"]
+You will be given access to state['scenes'] (may be empty or contain partial scene data).
+For each scene you want to create, produce a 'comment' and 'speech' and return as updates.
+
+Rules:
+- Return ONLY: {"updates":[{"index":0,"comment":"...","speech":"..."}, ...]}
+- One update per scene you want to create or modify
+- Do NOT return the full scenes array
+- Do NOT wrap output in ``` fences
+
+The 'comment' is a brief 1-sentence description of what the scene is about.
+The 'speech' is the actual voiceover narration text for that scene.
+"""
+
+voiceover_generate_updates_agent = Agent(
+    model=GEMINI_MODEL,
+    name="voiceover_generate_updates_agent",
+    description="Generates voiceover comment and speech as index-based updates.",
+    instruction=VOICEOVER_GENERATE_INSTRUCTION,
+    output_schema=VoiceoverUpdateList,
+    output_key="voiceover_updates",
+)
+
+voiceover_apply_updates_agent = Agent(
+    model=GEMINI_MODEL,
+    name="voiceover_apply_updates_agent",
+    description="Applies voiceover_updates to state['scenes'] deterministically.",
+    instruction="Call apply_voiceover_updates to merge state['voiceover_updates'] into state['scenes']. When you are finished, let the user know your task is complete",
+    tools=[apply_voiceover_updates],
+)
+
+# ----------------------------
+# Sequential Pipeline
+# ----------------------------
+
+voiceover_pipeline_agent = SequentialAgent(
+    name="voiceover_pipeline_agent",
+    description="Generates voiceover updates and applies them to scenes.",
+    sub_agents=[voiceover_generate_updates_agent, voiceover_apply_updates_agent],
+)
+
+# ----------------------------
+# Main Agent
+# ----------------------------
 
 voiceover_scene_agent = None
 
@@ -303,12 +404,8 @@ try:
         name="voiceover_scene_agent",
         description="Generates voiceover scenes for a tutorial video from artifacts in the session state",
         instruction=VOICEOVER_SYSTEM_INSTRUCTION,
-        tools=[list_grounding_artifacts, commit_initial_voiceover_scenes, load_artifacts, AgentTool(agent=concept_video_agent_from_slides), AgentTool(agent=summary_video_agent_from_slides)],
-        # before_agent_callback=before_agent_preload_state,
-        # after_agent_callback=after_agent_adjust_state,
-        # after_model_callback=validate_store_scenes_after_model,
-        # output_key="scenes",
-        # output_schema=SceneList,
+        tools=[list_grounding_artifacts, load_artifacts, AgentTool(agent=concept_video_agent_from_slides), AgentTool(agent=summary_video_agent_from_slides)],
+        sub_agents=[voiceover_pipeline_agent],
     )
     logging.info(f"✅ Sub-agent '{voiceover_scene_agent.name}' created using model '{GEMINI_MODEL}'.")
 except Exception as e:
@@ -317,83 +414,3 @@ except Exception as e:
 
 
 
-
-
-
-# Not currently used - wasn't working correctly. May need to debug if I continue to have issues with model output validation
-def validate_scenes_after_model(
-    callback_context: CallbackContext,
-    llm_response: LlmResponse,
-) -> Optional[LlmResponse]:
-    """
-    After-model callback:
-      - If a valid SceneList is present already => return None (do nothing)
-      - If we can clean/fix the model output into a valid SceneList => update the llm_response and return it
-      - If we can't produce valid SceneList => replace response with an error SceneList JSON and return it
-    """
-    # If the model returned a tool call or no text, don't touch it.
-    if not (llm_response.content and llm_response.content.parts):
-        return None
-
-    parts = llm_response.content.parts
-
-    for i, part in enumerate(parts):
-        # check if current part is already valid JSON that matches this agent's output schema
-        try:
-            # =================================================
-            # TODO: THIS PART IS WRONG! Need to do part to json first, and then try to extract from the text.
-            # I got my functions confused
-            # =================================================
-            scenes = SceneList.model_validate_json(part.text or "")
-            # If I'm still here: already valid JSON, so just return None to keep the flow going
-            logging.info(f"Response from agent-tool is already valid SceneList JSON.")
-            return None
-        except ValidationError:
-            pass
-        # if I made it here, the initial response wasn't valid JSON right away
-        # so now I can try to parse it as valid json
-        logging.warning(f"Response from agent-tool is not valid JSON - attempting recovery")
-        try:
-            candidate_json, raw = _part_to_candidate_json(part)
-        except Exception:
-            candidate_json, raw = None, getattr(part, "text", "")
-        
-        if not candidate_json:
-            # something didn't work, so get out of this loop and try the next part
-            # if this was the final part: then this goes to the fallback error logic
-            continue
-
-        try:
-            scenes = SceneList.model_validate_json(candidate_json)
-            # If I'm still here: candidate_json was valid logic, so need to update the LLM response with this.
-            # This snippet adapted from https://google.github.io/adk-docs/callbacks/types-of-callbacks/#after-model-callback
-            # Deep copy parts to avoid modifying original if other callbacks exist
-            logging.info(f"Successfully recovered valid SceneList JSON from model response.")
-            modified_parts = [copy.deepcopy(part) for part in llm_response.content.parts]
-            modified_parts[i].text = candidate_json # Update the text
-
-            new_response = LlmResponse(
-                content=Content(role="model", parts=modified_parts))
-            logging.info(f"[Callback] Returning modified response.")
-            return new_response # Return the modified response
-        except Exception as e:
-            # If I made it here, the candidate json still didn't confirm to the schema (or something else was wrong), so continue in the loop
-            continue
-
-    # No valid JSON found in any part
-    logging.error(f"Failed to recover valid SceneList JSON from model response - returning error message.")
-    error_message = """{
-        "scenes": [
-            {
-                "comment": "Error",
-                "speech": "There was a parsing error generating voiceover scenes. Try asking the model to generate again and it may work"
-            }
-        ]
-    }"""
-    new_response = LlmResponse(
-        content=Content(
-            role="model", 
-            parts=[Part(text=error_message)]
-        )
-    )
-    return new_response

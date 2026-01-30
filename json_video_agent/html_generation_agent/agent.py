@@ -165,7 +165,7 @@ async def generate_html_with_image_generation(tool_context: ToolContext) -> Dict
     """Generate HTML slides by AI-generating one image per scene.
 
     Preconditions:
-        - tool_context.state["scenes_with_duration"] exists
+        - tool_context.state["scenes"] exists with duration properties
 
     Side effects:
         - Adds `html` field to each scene (image-only HTML slide)
@@ -178,10 +178,10 @@ async def generate_html_with_image_generation(tool_context: ToolContext) -> Dict
 
     logging.info("Generating HTML slides with image generation for each scene.")
 
-    if "scenes_with_duration" not in tool_context.state:
+    if "scenes" not in tool_context.state or not tool_context.state["scenes"]:
         return {
             "status": "error",
-            "message": "Missing scenes with duration - return to audio_generation_agent to generate it"
+            "message": "Missing scenes - return to audio_generation_agent to generate scenes and durations"
         }
     
     # Initialize the client with your API key.
@@ -189,7 +189,7 @@ async def generate_html_with_image_generation(tool_context: ToolContext) -> Dict
     client = genai.Client(api_key=os.environ.get("GOOGLE_API_KEY"))
     logging.info("Standalone Gemini Client initialized for image generation.")
 
-    scenes_parent_obj = copy.deepcopy(tool_context.state["scenes_with_duration"])
+    scenes_parent_obj = {"scenes": copy.deepcopy(tool_context.state["scenes"])}
     for i in range(len(scenes_parent_obj["scenes"])):
         logging.info(f"Generating image for scene {i}: {scenes_parent_obj['scenes'][i]['comment']}")
         comment = scenes_parent_obj["scenes"][i]["comment"]
@@ -214,11 +214,11 @@ async def generate_html_from_slide_pngs(tool_context: ToolContext) -> Dict[str, 
 
     This reads slide metadata JSON (containing `png_base64` per slide) from the artifact
     referenced by tool_context.state["slide_artifact_reference"], then maps each slide image to
-    the corresponding scene in tool_context.state["scenes_with_duration"].
+    the corresponding scene in tool_context.state["scenes"].
 
     Preconditions:
         - tool_context.state["slide_artifact_reference"] exists and contains artifact_key_json/artifact_version_json
-        - tool_context.state["scenes_with_duration"] exists
+        - tool_context.state["scenes"] exists with duration properties
 
     Side effects:
         - Adds `html` field to each scene (image-only HTML slide)
@@ -233,10 +233,10 @@ async def generate_html_from_slide_pngs(tool_context: ToolContext) -> Dict[str, 
             "status": "error",
             "message": "Missing slide artifact in state - return to content_grounding_agent to generate it"
         }
-    if "scenes_with_duration" not in tool_context.state:
+    if "scenes" not in tool_context.state or not tool_context.state["scenes"]:
         return {
             "status": "error",
-            "message": "Missing scenes with duration - return to audio_generation_agent to generate it"
+            "message": "Missing scenes - return to audio_generation_agent to generate scenes and durations"
         }
     # 1) get the json ref from the state
     slide_json_ref = tool_context.state["slide_artifact_reference"]
@@ -261,7 +261,7 @@ async def generate_html_from_slide_pngs(tool_context: ToolContext) -> Dict[str, 
 
     # 4) Parse JSON text -> python object
     slide_data = json.loads(text)
-    scenes_parent_obj = copy.deepcopy(tool_context.state["scenes_with_duration"])
+    scenes_parent_obj = {"scenes": copy.deepcopy(tool_context.state["scenes"])}
     
 
     # Create the "html" field with the base64 image in each slide
@@ -393,17 +393,6 @@ html_pipeline_agent = SequentialAgent(
 )
 
 
-
-
-
-# Temporary method while experimenting with sequential agent behavior
-
-def before_html_agent(callback_context: CallbackContext):
-    if "scenes_with_duration" in callback_context.state:
-        temp = callback_context.state["scenes_with_duration"]
-        callback_context.state["scenes"] = copy.deepcopy(temp["scenes"])
-
-
 html_generation_agent = None
 
 try:
@@ -414,7 +403,6 @@ try:
         instruction=HTML_GENERATION_PROMPT,
         tools=[list_saved_artifacts, list_current_state, generate_html_from_slide_pngs, generate_html_with_image_generation, generate_final_export_obj],
         sub_agents=[html_pipeline_agent],
-        before_agent_callback=before_html_agent
     )   
     logging.info(f"✅ Sub-agent '{html_generation_agent.name}' created using model '{GEMINI_MODEL}'.")
 except Exception as e:
