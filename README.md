@@ -198,6 +198,7 @@ This can be consumed by a video player that synchronizes HTML slides with the au
 
 Required environment variables (see `.env example`):
 
+- `GOOGLE_GENAI_USE_VERTEXAI=0` - Hard-coded setting to disable VertexAI. Always set this to 0.
 - `GOOGLE_API_KEY` - Google AI API key for Gemini models
 - `ELEVENLABS_API_KEY` - ElevenLabs API key for TTS
 - `GOOGLE_SERVICE_ACCOUNT_JSON` - Base64-encoded service account credentials
