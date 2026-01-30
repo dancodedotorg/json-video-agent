@@ -75,11 +75,12 @@ cp ".env example" .env
 ```
 
 ### Running the Agent
-
 ```bash
-# From the json_video_agent directory
-python -m google.adk.agents run agent:app
+# From the root folder json-video-agent directory, NOT the agent subfolder
+adk web
 ```
+
+This will load the ADK web interface. Select "json_video_agent" from the dropdown and start chatting.
 
 The agent will start in conversational mode. Follow the prompts to:
 1. Ground your content (upload slides, docs, or markdown)
@@ -218,26 +219,6 @@ See [`ARCHITECTURE.md`](ARCHITECTURE.md) for detailed guidance on:
 - State management conventions
 - Tool function patterns
 - Error handling standards
-
-### Documentation Standards
-
-Follow the guidelines in [`docs/STYLE_GUIDE.md`](docs/STYLE_GUIDE.md) for:
-- Docstring format (Google-style)
-- Type annotation conventions
-- Error handling patterns
-
-## Contributing
-
-Contributions are welcome! Please:
-
-1. Review the architecture documentation
-2. Follow the style guide
-3. Add tests for new features
-4. Update documentation as needed
-
-## License
-
-[Add your license here]
 
 ## Acknowledgments
 
