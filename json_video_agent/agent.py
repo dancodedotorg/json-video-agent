@@ -12,6 +12,7 @@ from .content_grounding_agent.agent import content_grounding_agent
 from .voiceover_scene_agent.agent import voiceover_scene_agent
 from .audio_tags_agent.agent import audio_tags_agent
 from .audio_generation_agent.agent import audio_generation_agent
+from .html_generation_agent.agent import html_generation_agent
 
 # Setup logging across agents
 import logging
@@ -40,6 +41,7 @@ Your primary task is to orchestrate the creation of a tutorial video. Your role 
 *   `voiceover_scene_agent`: Generates voiceover scripts based on the grounded content.
 *   `audio_tags_agent`: Augments the voiceover with audio tags for AI voice generation
 *   `audio_generation_agent`: Generates the actual audio from the voiceovers and updates the duration of each scene
+*   `html_generation_agent`: Generates slides as HTML to be displayed with the voiceovers in each scene
 
 **Core Tasks and Conversational Workflow:**
 
@@ -67,7 +69,7 @@ root_agent = Agent(
     description=DESCRIPTION,
     instruction=INSTRUCTION,
     tools=[list_saved_artifacts, list_current_state],
-    sub_agents=[content_grounding_agent, voiceover_scene_agent, audio_tags_agent, audio_generation_agent],
+    sub_agents=[content_grounding_agent, voiceover_scene_agent, audio_tags_agent, audio_generation_agent, html_generation_agent],
     before_agent_callback=setup_state,
 )
 logging.info(f"✅ Agent '{root_agent.name}' creating used model '{GEMINI_MODEL}'.")

@@ -12,6 +12,9 @@ from .elevenlabs_tools import elevenlabs_generation, ALL_VOICE_IDS
 import base64
 from typing import List, Dict, Any
 import logging
+import requests
+import base64
+import copy
 
 AUDIO_GENERATION_PROMPT = """**Role:** Audio Generation Agent
 
@@ -22,6 +25,7 @@ AUDIO_GENERATION_PROMPT = """**Role:** Audio Generation Agent
 1. Check that refined_voiceover_scenes exists in the session state and confirm with the user that this is the script they want to use for audio
 2. Use the get_available_voices tool to ask the user which voice they want to generate the audio in
 3. Get explicit permission from the user to generate this audio. Warn the user that this uses ElevenLabs credits
+  - Also ask the user if they want to generate "fake audio". If they say yes: use the fake_audio_generation tool.
 4. Once the user approves, use the audio_generation_tool to generate audio and an updated scene object
 5. Once the audio_generation_tool finishes, use the list_saved_artifacts tool and list_current_state tool to verify that an audio artifact was created and there is a scenes_with_duration value in the session state
 
@@ -32,6 +36,47 @@ AUDIO_GENERATION_PROMPT = """**Role:** Audio Generation Agent
 def get_available_voices() -> List[str]:
     """Return a list of available voice names"""
     return list(ALL_VOICE_IDS)
+
+async def fake_audio_generation(tool_context: ToolContext) -> Dict[str, Any]:
+    """Use this tool when testing. It will use a pre-generated audio file rather than spending elevenlabs credits"""
+    logging.info("FAKE Audio Generation Tool invoked.")
+
+    # Get data from state
+    script_obj = tool_context.state.get("refined_voiceover_scenes", None)
+    if not script_obj:
+        logging.error("❌ 'refined_voiceover_scenes' not found in tool context state.")
+        return {"status": "error", "message": "'refined_voiceover_scenes' not found in tool context state. Return to audio_tags agent to generate scenes first."}
+
+    scenes = copy.deepcopy(script_obj["scenes"])
+    for scene in scenes:
+        scene["duration"] = "auto"
+    result = {
+        "scenes": scenes
+    }
+
+    url = "https://raw.githubusercontent.com/dancodedotorg/sam_dan_silly/refs/heads/main/sam_dan.b64"
+    b64_data = requests.get(url, timeout=10).text.strip()
+    audio_bytes = base64.b64decode(b64_data)
+
+    # Save artifact
+    audio_part = make_part("audio/mpeg", audio_bytes)
+    artifact_key = f"voiceover_silly.mp3"
+    version = await tool_context.save_artifact(filename=artifact_key, artifact=audio_part)
+
+    artifact_ref = {
+        "type": "mp3",
+        "artifact_key": artifact_key,
+        "artifact_version": version,
+        "voice_name": "Dan and Sam",
+        "mime_type": "audio/mpeg",
+    }
+    
+    tool_context.state["voiceover_audio_artifact"] = artifact_ref
+    tool_context.state["scenes_with_duration"] = result
+
+    return {"status": "success", "message": "Audio generation completed.", "scenes_with_duration:": result, "audio_artifact": artifact_ref}
+
+
 
 async def audio_generation_tool(voice_name: str, tool_context: ToolContext) -> Dict[str, Any]:
     """Audio Generation Tool using ElevenLabs API."""
@@ -107,7 +152,7 @@ try:
         name='audio_generation_agent',
         description='You generate an audio file from the refined_voiceover_scenes stored in the session state',
         instruction=AUDIO_GENERATION_PROMPT,
-        tools=[get_available_voices, list_current_state, list_saved_artifacts, audio_generation_tool],
+        tools=[get_available_voices, list_current_state, list_saved_artifacts, audio_generation_tool, fake_audio_generation],
         # after_agent_callback=after_agent_adjust_state
     )   
     logging.info(f"✅ Sub-agent '{audio_generation_agent.name}' created using model '{GEMINI_MODEL}'.")

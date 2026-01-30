@@ -186,6 +186,7 @@ def add_to_grounding_artifacts(ref: Dict, tool_context: ToolContext) -> None:
     tool_context.state["grounding_artifacts"] = grounding_artifacts
 
 DESCRIPTION = 'Collects and grounds content for tutorial video creation.'
+
 INSTRUCTION = """**Role:** Content Grounding Agent
 
 **Primary Objective:** 
