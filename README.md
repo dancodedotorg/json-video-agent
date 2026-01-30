@@ -108,6 +108,7 @@ Collects and processes educational resources for the tutorial video.
 - Google Slides presentations
 - Google Docs
 - Code.org curriculum markdown levels
+- Uploading a PDF via the web interface
 
 **Output:** PDF and metadata artifacts stored in session state
 
