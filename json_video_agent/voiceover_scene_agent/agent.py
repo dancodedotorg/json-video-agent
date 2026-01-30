@@ -193,13 +193,19 @@ def apply_voiceover_updates(tool_context: ToolContext) -> Dict[str, Any]:
 # Helper: Convert SceneList to VoiceoverUpdateList
 # ----------------------------
 
-def _convert_scenes_to_updates(callback_context: CallbackContext):
-    """
-    After a preset agent returns a full SceneList, convert it to VoiceoverUpdateList
-    and apply the updates directly to state['scenes'].
+def _convert_scenes_to_updates(callback_context: CallbackContext) -> None:
+    """Convert preset agent's full scene list to update format and apply to state.
     
-    This allows preset agents to return full scenes while maintaining compatibility
-    with the sequential update pattern.
+    Callback function that runs after preset agents (concept_video, summary_video) complete.
+    Converts their full SceneList output into the VoiceoverUpdateList format and applies
+    the updates directly to state['scenes']. This maintains compatibility between preset
+    agents (which generate full scenes) and the sequential pipeline pattern (which uses updates).
+    
+    Args:
+        callback_context: ADK CallbackContext providing access to session state
+        
+    Returns:
+        None - modifies state in place
     """
     # Check if we have a full scene list (from preset agents)
     if "preset_scene_output" in callback_context.state:

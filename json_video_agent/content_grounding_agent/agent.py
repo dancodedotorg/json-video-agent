@@ -194,9 +194,19 @@ async def save_google_doc_as_pdf_artifact(doc_id: str, tool_context: ToolContext
 
     return {"status": "success", "artifact_key": out_name, "artifact_version": version}
 
-# Short helper function to reduct duplicated code
-def add_to_grounding_artifacts(ref: Dict, tool_context: ToolContext) -> None:
-    """Helper to add an artifact reference to grounding_artifacts in state."""
+def add_to_grounding_artifacts(ref: Dict[str, Any], tool_context: ToolContext) -> None:
+    """Add an artifact reference to the grounding_artifacts list in state.
+    
+    Helper function to append a new artifact reference to the grounding_artifacts
+    list. Uses the copy-modify-write pattern required for ADK state updates.
+    
+    Args:
+        ref: Artifact reference dictionary containing type, key, version, and mime_type
+        tool_context: ADK ToolContext for accessing and modifying state
+        
+    Returns:
+        None - modifies state in place
+    """
     grounding_artifacts = tool_context.state.get("grounding_artifacts", [])
     grounding_artifacts.append(ref)
     tool_context.state["grounding_artifacts"] = grounding_artifacts

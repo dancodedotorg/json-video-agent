@@ -119,8 +119,15 @@ AUDIO_GENERATION_PROMPT = """**Role:** Audio Generation Agent
 
 
 def get_available_voices() -> List[str]:
-    """Return a list of available voice names"""
-    return list(ALL_VOICE_IDS)
+    """Get list of available ElevenLabs voice options.
+    
+    Returns the names of all configured ElevenLabs voices that can be used
+    for audio generation. Voice IDs are defined in elevenlabs_tools.py.
+    
+    Returns:
+        List of voice name strings (e.g., ["Sam", "Dan", "Adam", "Hope"])
+    """
+    return list(ALL_VOICE_IDS.keys())
 
 async def fake_audio_generation(tool_context: ToolContext) -> Dict[str, Any]:
     """Use this tool when testing. It will use a pre-generated audio file rather than spending elevenlabs credits"""

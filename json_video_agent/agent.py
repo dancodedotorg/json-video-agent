@@ -72,7 +72,19 @@ Your primary task is to orchestrate the creation of a tutorial video. Your role 
 *   **Manage State:** Keep track of the approved assets to use them as input for subsequent steps.
 *   **Be Patient:** The user may want to make many changes. Be patient and accommodating. """
 
-def setup_state(callback_context: CallbackContext):
+def setup_state(callback_context: CallbackContext) -> None:
+    """Initialize required state structure for the video generation workflow.
+    
+    Sets up the fundamental data structures in the ADK state that will be used
+    throughout the multi-agent workflow. Called automatically before the root
+    agent execution via the before_agent_callback parameter.
+    
+    Args:
+        callback_context: ADK CallbackContext providing access to session state
+        
+    Returns:
+        None - modifies state in place
+    """
     if "scenes" not in callback_context.state:
         callback_context.state["scenes"] = []
     if "grounding_artifacts" not in callback_context.state:

@@ -14,8 +14,10 @@ Authentication is handled via service account credentials stored as a base64-enc
 JSON string in the GOOGLE_SERVICE_ACCOUNT_JSON environment variable.
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 from googleapiclient.discovery import build
+from google.oauth2.service_account import Credentials
+from google.auth.transport.requests import AuthorizedSession as AuthSessionType
 
 import base64
 import io
@@ -33,11 +35,10 @@ from xhtml2pdf import pisa
 from dotenv import load_dotenv
 load_dotenv()
 
-# --- Scopes: read-only is enough for notes + thumbnails ---
+# Google API OAuth scopes (read-only access for Slides and Drive)
 SLIDES_SCOPES = [
-    "https://www.googleapis.com/auth/presentations.readonly",
-    # Not always required for Slides API calls, but useful if you later look up by Drive file metadata
-    "https://www.googleapis.com/auth/drive.readonly",
+    "https://www.googleapis.com/auth/presentations.readonly",  # Access presentation content
+    "https://www.googleapis.com/auth/drive.readonly",          # Access Drive file metadata
 ]
 
 
@@ -46,13 +47,23 @@ SLIDES_SCOPES = [
 # -----------------------------
 def get_service_account_creds_from_env(
     env_var: str = "GOOGLE_SERVICE_ACCOUNT_JSON",
-    scopes=SLIDES_SCOPES,
-):
-    """
-    Create service-account credentials from an environment variable containing JSON.
-
-    Example:
-      export GOOGLE_SERVICE_ACCOUNT_JSON='{"type":"service_account", ... }'
+    scopes: List[str] = SLIDES_SCOPES,
+) -> Credentials:
+    """Create service account credentials from base64-encoded JSON in environment variable.
+    
+    Loads Google service account credentials from an environment variable containing
+    a base64-encoded JSON string. This is more secure than storing the JSON file directly.
+    
+    Args:
+        env_var: Name of environment variable containing base64-encoded service account JSON
+        scopes: List of Google API OAuth scopes to request
+        
+    Returns:
+        Google service account Credentials object configured with specified scopes
+        
+    Raises:
+        ValueError: If the environment variable is not set
+        json.JSONDecodeError: If the decoded content is not valid JSON
     """
     raw = os.environ.get(env_var)
     if not raw:
@@ -68,21 +79,32 @@ def get_service_account_creds_from_env(
 # -----------------------------
 # Cached API client builders
 # -----------------------------
-def _build_slides_service(_creds):
-    """
-    Build and cache the Google Slides API service.
-
-    Note: underscore prefix prevents Streamlit from keying cache on credentials.
+def _build_slides_service(_creds: Credentials):
+    """Build Google Slides API service client.
+    
+    Creates a Google Slides API v1 service object for making API calls.
+    Cache discovery is disabled to avoid caching issues in ADK environment.
+    
+    Args:
+        _creds: Google service account credentials
+        
+    Returns:
+        Google Slides API service client
     """
     return build("slides", "v1", credentials=_creds, cache_discovery=False)
 
 
-def _build_authed_session(_creds):
-    """
-    Build and cache an AuthorizedSession for downloading thumbnail contentUrls.
-
-    This avoids manually using creds.token (which can expire).
-    AuthorizedSession applies auth headers and refreshes as needed.
+def _build_authed_session(_creds: Credentials) -> AuthSessionType:
+    """Build authorized HTTP session for authenticated requests.
+    
+    Creates an AuthorizedSession that automatically handles authentication headers
+    and token refresh. Useful for downloading content URLs that require auth.
+    
+    Args:
+        _creds: Google service account credentials
+        
+    Returns:
+        AuthorizedSession instance for making authenticated HTTP requests
     """
     return AuthorizedSession(_creds)
 
@@ -90,10 +112,21 @@ def _build_authed_session(_creds):
 # -----------------------------
 # Main orchestration functions
 # -----------------------------
-def get_slides_data(presentation_id):
-    """
-    Orchestrates fetching speaker notes + thumbnails, returning a single list
-    of slide dicts.
+def get_slides_data(presentation_id: str) -> List[Dict[str, Any]]:
+    """Fetch slide data including speaker notes and thumbnails from Google Slides.
+    
+    Orchestrates the retrieval of presentation data by combining slide metadata,
+    speaker notes, and PNG thumbnails into a unified data structure.
+    
+    Args:
+        presentation_id: Google Slides presentation ID (the ID portion from the URL)
+            
+    Returns:
+        List of slide dictionaries, where each dict contains:
+            - index (int): Zero-based slide index
+            - slide_id (str): Google Slides object ID
+            - notes (str): Speaker notes text content
+            - png_base64 (str | None): Base64-encoded PNG data URI or None if unavailable
     """
     creds = get_service_account_creds_from_env()
     slides = _get_slide_list(presentation_id, creds)
@@ -114,12 +147,18 @@ def get_slides_data(presentation_id):
 
     return slides_data
 
-def render_pdf_bytes_from_slides(presentation_id):
-    """
-    Given a Google Slides presentation ID, fetches the slides data and
-    returns a base64-encoded PDF string containing slide thumbnails and notes.
-    """
+def render_pdf_bytes_from_slides(presentation_id: str) -> str:
+    """Generate a PDF with slide thumbnails and notes from a Google Slides presentation.
     
+    Fetches slide data (thumbnails and speaker notes) and renders them as a PDF
+    with a two-column layout: slide image on left, notes on right.
+    
+    Args:
+        presentation_id: Google Slides presentation ID
+        
+    Returns:
+        Base64-encoded PDF string ready for saving or transmission
+    """
     slides_data = get_slides_data(presentation_id)
     pdf_base64 = slides_to_pdf(slides_data)
     return pdf_base64
@@ -127,24 +166,56 @@ def render_pdf_bytes_from_slides(presentation_id):
 # -----------------------------
 # Helpers: slide list + notes
 # -----------------------------
-def _get_slide_list(presentation_id, creds):
+def _get_slide_list(presentation_id: str, creds: Credentials) -> List[Dict[str, Any]]:
+    """Get slide list from presentation metadata.
+    
+    Args:
+        presentation_id: Google Slides presentation ID
+        creds: Google service account credentials
+        
+    Returns:
+        List of slide objects from Slides API
+    """
     service = _build_slides_service(creds)
     presentation = service.presentations().get(presentationId=presentation_id).execute()
     return presentation.get("slides", [])
 
 
-def get_all_speaker_notes(presentation_id, creds):
-    """
-    Backwards-compatible function: returns notes as a list ordered by slide index.
+def get_all_speaker_notes(presentation_id: str, creds: Credentials) -> List[str]:
+    """Get speaker notes for all slides as an ordered list.
+    
+    Backwards-compatible function that returns notes as a list ordered by slide index.
+    Internally uses get_all_speaker_notes_by_slide_id for correctness.
+    
+    Args:
+        presentation_id: Google Slides presentation ID
+        creds: Google service account credentials
+        
+    Returns:
+        List of speaker notes strings, one per slide in presentation order
     """
     slides = _get_slide_list(presentation_id, creds)
     notes_by_id = get_all_speaker_notes_by_slide_id(presentation_id, creds, slides=slides)
     return [notes_by_id.get(s["objectId"], "") for s in slides]
 
 
-def get_all_speaker_notes_by_slide_id(presentation_id, creds, slides=None):
-    """
-    Preferred: returns notes keyed by slide objectId so you never misalign notes/thumbnails.
+def get_all_speaker_notes_by_slide_id(
+    presentation_id: str,
+    creds: Credentials,
+    slides: Optional[List[Dict[str, Any]]] = None
+) -> Dict[str, str]:
+    """Get speaker notes for all slides keyed by slide object ID.
+    
+    Preferred method that returns notes keyed by slide objectId to prevent
+    misalignment between notes and thumbnails.
+    
+    Args:
+        presentation_id: Google Slides presentation ID
+        creds: Google service account credentials
+        slides: Optional pre-fetched slide list (fetched if not provided)
+        
+    Returns:
+        Dictionary mapping slide objectId to speaker notes text
     """
     if slides is None:
         slides = _get_slide_list(presentation_id, creds)
@@ -183,20 +254,40 @@ def get_all_speaker_notes_by_slide_id(presentation_id, creds, slides=None):
 # -----------------------------
 # Thumbnails
 # -----------------------------
-def get_all_pngs_from_presentation(presentation_id, creds):
-    """
-    Backwards-compatible: returns thumbnails as a list ordered by slide index.
+def get_all_pngs_from_presentation(presentation_id: str, creds: Credentials) -> List[Optional[str]]:
+    """Get slide thumbnails as PNG data URIs in presentation order.
+    
+    Backwards-compatible function that returns thumbnails as a list ordered by slide index.
+    
+    Args:
+        presentation_id: Google Slides presentation ID
+        creds: Google service account credentials
+        
+    Returns:
+        List of PNG data URIs (or None for slides without thumbnails)
     """
     slides = _get_slide_list(presentation_id, creds)
     thumbs_by_id = get_all_pngs_by_slide_id(presentation_id, creds, slides=slides)
     return [thumbs_by_id.get(s["objectId"], None) for s in slides]
 
 
-def get_all_pngs_by_slide_id(presentation_id, creds, slides=None):
-    """
-    Preferred: returns data-URI PNG thumbnails keyed by slide objectId.
-
-    Uses AuthorizedSession so auth works reliably without manual token handling.
+def get_all_pngs_by_slide_id(
+    presentation_id: str,
+    creds: Credentials,
+    slides: Optional[List[Dict[str, Any]]] = None
+) -> Dict[str, Optional[str]]:
+    """Get slide thumbnails as PNG data URIs keyed by slide object ID.
+    
+    Preferred method that returns thumbnails keyed by slide objectId to prevent
+    misalignment. Uses AuthorizedSession for reliable auth with automatic token refresh.
+    
+    Args:
+        presentation_id: Google Slides presentation ID
+        creds: Google service account credentials
+        slides: Optional pre-fetched slide list (fetched if not provided)
+        
+    Returns:
+        Dictionary mapping slide objectId to PNG data URI (or None if unavailable)
     """
     if slides is None:
         slides = _get_slide_list(presentation_id, creds)
@@ -240,11 +331,20 @@ def get_all_pngs_by_slide_id(presentation_id, creds, slides=None):
 # -----------------------------
 # PDF rendering
 # -----------------------------
-def slides_to_pdf(slides):
-    """
-    slides: list of dicts like:
-      [{ "png_base64": "data:image/png;base64,...", "notes": "..." }, ...]
-    Returns a base64-encoded PDF string.
+def slides_to_pdf(slides: List[Dict[str, Any]]) -> str:
+    """Render slides with notes as a two-column PDF layout.
+    
+    Generates an HTML table with slide thumbnails and speaker notes, then converts
+    to PDF using xhtml2pdf. The layout shows slide images on the left (40% width)
+    and notes on the right (60% width).
+    
+    Args:
+        slides: List of slide dictionaries containing:
+            - png_base64 (str): Base64 PNG data URI for slide thumbnail
+            - notes (str): Speaker notes text
+        
+    Returns:
+        Base64-encoded PDF string ready for saving or transmission
     """
     rows_html = ""
     for slide in slides:
@@ -290,21 +390,35 @@ def slides_to_pdf(slides):
     return base64.b64encode(pdf_io.getvalue()).decode("utf-8")
 
 
-def extract_slides_id(url: str) -> str | None:
-    """
-    Return the Google Slides ID from a URL, or None if not found.
-    Matches typical patterns like:
-      - https://docs.google.com/presentation/d/<ID>/edit
-      - https://docs.google.com/presentation/u/0/d/<ID>/view
-      - https://drive.google.com/file/d/<ID>/view
+def extract_slides_id(url: str) -> Optional[str]:
+    """Extract Google Slides presentation ID from a URL.
+    
+    Parses various Google Slides/Drive URL formats to extract the presentation ID.
+    
+    Supported URL patterns:
+        - https://docs.google.com/presentation/d/<ID>/edit
+        - https://docs.google.com/presentation/u/0/d/<ID>/view
+        - https://drive.google.com/file/d/<ID>/view
+    
+    Args:
+        url: Google Slides or Drive URL
+        
+    Returns:
+        Presentation ID string, or None if no valid ID found in URL
     """
     m = re.search(r'(?:docs\.google\.com\/presentation|drive\.google\.com\/file)?(?:\/u\/\d+)?\/d\/([A-Za-z0-9_-]+)', url)
     return m.group(1) if m else None
 
-def extract_doc_id(url: str) -> str | None:
-    """
-    Extract a Google Docs document ID from a URL.
-    Returns None if no valid ID is found.
+def extract_doc_id(url: str) -> Optional[str]:
+    """Extract Google Docs document ID from a URL.
+    
+    Parses Google Docs URLs to extract the document ID.
+    
+    Args:
+        url: Google Docs URL (e.g., "https://docs.google.com/document/d/<ID>/edit")
+        
+    Returns:
+        Document ID string, or None if no valid ID found in URL
     """
     match = re.search(
         r'docs\.google\.com\/document(?:\/u\/\d+)?\/d\/([A-Za-z0-9_-]+)',
@@ -312,15 +426,20 @@ def extract_doc_id(url: str) -> str | None:
     )
     return match.group(1) if match else None
 
-async def fetch_markdown_level(name: str) -> str | None:
-    """
-    When the user asks for a markdown level, fetches the level data from GitHub and extracts the markdown
+async def fetch_markdown_level(name: str) -> Optional[str]:
+    """Fetch Code.org curriculum markdown from GitHub repository.
+    
+    Retrieves markdown content for a Code.org curriculum level from the public
+    GitHub repository. Converts the level name to the expected file format and
+    extracts markdown content from the .external file format.
     
     Args:
-        name: name of level.
+        name: Level name identifier (e.g., "Unit3-Lesson5", "CSD-U3-L5")
+            Dashes are converted to underscores for file lookup
 
     Returns:
-        markdown content as a string, or None if not found.
+        Markdown content string extracted from the level file, or None if not found
+        or if the request fails
     """
 
     # LEVELURL: "https://raw.githubusercontent.com/code-dot-org/code-dot-org/refs/heads/staging/dashboard/config/levels/custom/pythonlab/{level_name}.level"
@@ -350,12 +469,18 @@ async def fetch_markdown_level(name: str) -> str | None:
     return None
 
 async def fetch_doc_as_pdf(export_url: str) -> Dict[str, Any]:
-    """
-    Fetch the PDF export of a Google Doc given its export URL.
+    """Fetch PDF export of a Google Doc from its export URL.
+    
+    Downloads a Google Doc as PDF using the document's export URL. Includes
+    guardrails to detect private/inaccessible documents that return HTML instead of PDF.
+    
     Args:
-        export_url: The URL to export the Google Doc as PDF.
+        export_url: Google Docs export URL (format: https://docs.google.com/document/d/{ID}/export?format=pdf)
+        
     Returns:
-        A dict with either 'status': 'success' and 'pdf_bytes' keys, or 'status': 'error' and 'message'.
+        Dictionary containing:
+            - On success: {"status": "success", "pdf_bytes": bytes}
+            - On error: {"status": "error", "message": str}
     """
     timeout_s = 30.0
     

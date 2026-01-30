@@ -51,10 +51,25 @@ IMAGE_GEN_CONFIG = GenerateContentConfig(
 
 GEMINI_IMG_MODEL = "gemini-2.5-flash-image"
 
-# Helper function to generate an image for a given scene
-def generate_image_for_scene(client: genai.Client, comment: str, speech: str):
-
-    # Construct the indiuvidual prompt
+def generate_image_for_scene(client: genai.Client, comment: str, speech: str) -> str:
+    """Generate an educational illustration for a tutorial video scene using Gemini.
+    
+    Creates a context-aware image based on the scene's comment and narration using
+    Google's Gemini image generation model. The image follows educational illustration
+    guidelines and Code.org brand colors.
+    
+    Args:
+        client: Initialized Google Gemini client with API key
+        comment: Brief scene description/context
+        speech: Full voiceover narration text for the scene
+        
+    Returns:
+        Base64-encoded PNG data URI (format: "data:image/png;base64,...")
+        
+    Raises:
+        Exception: If image generation fails (re-raises from Gemini API)
+    """
+    # Construct the individual prompt
     prompt = f"""Create a high-quality educational illustration for a tutorial video with this context:
     Scene context: {comment}. 
     Narration: "{speech}".
