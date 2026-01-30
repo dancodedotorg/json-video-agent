@@ -1,3 +1,20 @@
+"""Audio generation agent implementation for speech synthesis and timing.
+
+This module defines the audio generation agent which synthesizes voiceover narration
+using the ElevenLabs text-to-speech API and calculates precise scene durations from
+character-level timestamp alignment data.
+
+Key Components:
+    - Pydantic schemas for duration update structures
+    - Audio generation tools (real and fake for testing)
+    - Duration pipeline agent for applying timing updates
+    - Voice selection tool
+
+The agent reads scene.elevenlabs properties, generates MP3 audio (saved as artifact),
+and writes scene.duration properties with calculated timing for each scene. Audio bytes
+are stored in artifacts, not in state.
+"""
+
 # Google ADK Imports
 from google.adk.agents.llm_agent import Agent
 from google.adk.agents.sequential_agent import SequentialAgent

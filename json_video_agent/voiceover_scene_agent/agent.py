@@ -1,3 +1,21 @@
+"""Voiceover scene agent implementation with preset workflows and sequential pipeline.
+
+This module defines the voiceover scene agent which generates narration scripts from
+grounded educational content. It supports multiple generation modes:
+    - Preset concept video (slide-by-slide detailed narration)
+    - Preset summary video (condensed review of key concepts)
+    - Co-create pipeline (interactive scene generation with user)
+
+Key Components:
+    - Pydantic schemas for scene data and update structures
+    - Preset sub-agents (concept_video_agent, summary_video_agent)
+    - Sequential pipeline agent (voiceover_pipeline_agent)
+    - Update conversion utilities for compatibility between patterns
+
+The agent reads grounded artifacts and writes scene data with 'comment' and 'speech'
+properties to the unified state.scenes array.
+"""
+
 # Google ADK Imports
 from google.adk.agents.llm_agent import Agent
 from google.adk.agents.sequential_agent import SequentialAgent

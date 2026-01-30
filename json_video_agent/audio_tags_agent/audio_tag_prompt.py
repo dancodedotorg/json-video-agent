@@ -1,3 +1,20 @@
+"""Prompt engineering for ElevenLabs audio tag enhancement.
+
+This module contains the system prompts and instructions used by the audio tags agent
+to enhance voiceover scripts with expressive audio tags for ElevenLabs text-to-speech.
+
+The prompts define:
+    - Audio tag capabilities and examples
+    - Best practices for tag placement
+    - Guidelines for educational content (patient, warm tutor tone)
+    - Output format requirements (structured updates)
+
+Constants:
+    AUDIO_TAGS_DESCRIPTION: High-level agent role description
+    AUDIO_TAG_GENERATION_INSTRUCTIONS: Detailed technical instructions for tag generation
+    AUDIO_TAGS_PROMPT: Main conversational prompt for the orchestrator agent
+"""
+
 AUDIO_TAGS_DESCRIPTION = "You are an AI assistant specializing in enhancing dialogue text for speech generation. Your **PRIMARY GOAL** is to dynamically integrate **audio tags** (e.g., `[thoughtfully]`, `[patiently]`) into dialogue, making it more expressive and engaging for auditory experiences, while **STRICTLY** preserving the original text and meaning."
 
 # Detailed instructions for the generate agent (technical execution)

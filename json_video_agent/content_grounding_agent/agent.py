@@ -1,3 +1,19 @@
+"""Content grounding agent implementation and tool functions.
+
+This module defines the content grounding agent which is responsible for importing
+and processing educational resources (Google Slides, Docs, Code.org markdown) into
+a format usable by the tutorial video generation system.
+
+Key Tool Functions:
+    - slides_id_to_artifacts: Import Google Slides presentations
+    - create_markdown_artifact: Import Code.org curriculum markdown
+    - save_google_doc_as_pdf_artifact: Import Google Docs
+    - add_to_grounding_artifacts: Helper for state management
+
+The agent saves large binary data (PDFs, JSON) as ADK artifacts and stores
+references in state.grounding_artifacts for use by downstream agents.
+"""
+
 # Google ADK Imports
 from google.adk.agents.llm_agent import Agent
 from google.adk.tools import ToolContext

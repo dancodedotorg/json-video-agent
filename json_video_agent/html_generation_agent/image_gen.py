@@ -1,3 +1,20 @@
+"""Gemini image generation integration for AI-created tutorial visuals.
+
+This module provides utilities for generating educational illustrations using Google's
+Gemini image generation model. Images are created based on scene context and narration
+to provide visual accompaniment for tutorial videos.
+
+Key Features:
+    - Gemini 2.5 Flash Image model integration
+    - Educational illustration style prompts
+    - Code.org brand color palette
+    - 16:9 aspect ratio for video compatibility
+    - Context-aware image generation from scene metadata
+
+Generated images are returned as base64-encoded data URIs ready for embedding in
+HTML slides.
+"""
+
 from google.genai.types import GenerateContentConfig, ImageConfig
 from google import genai
 import base64

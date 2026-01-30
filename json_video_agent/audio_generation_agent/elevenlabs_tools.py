@@ -1,3 +1,21 @@
+"""ElevenLabs API integration and scene duration calculation.
+
+This module provides utilities for generating speech audio using the ElevenLabs
+text-to-speech API and calculating precise scene durations from character-level
+timestamp alignment data.
+
+Key Features:
+    - ElevenLabs V3 model integration with audio tag support
+    - Character-level timestamp alignment parsing
+    - Scene duration calculation based on text character counts
+    - Cached client initialization
+    - Support for multiple voice options
+
+The duration calculation algorithm maps character counts from the concatenated
+voiceover script to timestamp data returned by the API, accurately determining
+when each scene starts and ends in the audio timeline.
+"""
+
 from elevenlabs.client import ElevenLabs
 from typing import List, Dict, Any
 import logging

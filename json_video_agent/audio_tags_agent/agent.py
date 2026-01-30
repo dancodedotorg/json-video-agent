@@ -1,3 +1,19 @@
+"""Audio tags agent implementation with sequential pipeline for tag generation.
+
+This module defines the audio tags agent which enhances voiceover scripts with
+ElevenLabs audio tags that control tone, pacing, emotion, and emphasis in
+text-to-speech synthesis.
+
+Key Components:
+    - Pydantic schemas for audio tag update structures
+    - Sequential pipeline agent (audio_tags_pipeline_agent)
+    - Update generation and application functions
+
+The agent reads scene.speech properties and writes enhanced scene.elevenlabs properties
+with strategically placed audio tags like [thoughtful], [excited], [short pause], etc.
+Uses a sequential pipeline pattern to ensure deterministic state updates.
+"""
+
 # Google ADK Imports
 from google.adk.agents.llm_agent import Agent
 from google.adk.agents.sequential_agent import SequentialAgent

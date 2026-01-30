@@ -1,3 +1,19 @@
+"""Helper utilities for Google API integration and content processing.
+
+This module provides utility functions for interacting with Google Slides and Docs APIs,
+processing educational content from various sources, and rendering content as PDFs.
+
+Key Components:
+    - Google Slides API integration (speaker notes and thumbnails)
+    - Google Docs export functionality
+    - Code.org curriculum markdown fetching (via GitHub)
+    - PDF rendering from HTML (slide notes view)
+    - ID extraction from Google URLs
+
+Authentication is handled via service account credentials stored as a base64-encoded
+JSON string in the GOOGLE_SERVICE_ACCOUNT_JSON environment variable.
+"""
+
 from typing import Any, Dict
 from googleapiclient.discovery import build
 

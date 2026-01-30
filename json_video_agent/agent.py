@@ -1,3 +1,19 @@
+"""Root orchestrator agent for the JSON Video Agent system.
+
+This module defines the main orchestrator agent that manages the overall workflow
+for creating tutorial videos with AI-generated voiceovers and visual displays.
+
+The root agent coordinates five specialized sub-agents:
+    - content_grounding_agent: Imports educational resources
+    - voiceover_scene_agent: Generates voiceover scripts
+    - audio_tags_agent: Enhances scripts with expressive tags
+    - audio_generation_agent: Synthesizes speech with ElevenLabs
+    - html_generation_agent: Creates visual slides
+
+The agent maintains a conversational workflow, seeking user approval at each stage
+and managing the unified state object that flows through all sub-agents.
+"""
+
 # Google ADK Imports
 from google.adk.agents.llm_agent import Agent
 from google.adk.apps import App

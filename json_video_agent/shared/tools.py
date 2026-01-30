@@ -1,3 +1,15 @@
+"""Shared tool functions for ADK state and artifact management.
+
+This module provides common utility functions used across all agents for:
+    - State inspection and listing
+    - Artifact creation and management
+    - JSON extraction from agent responses
+    - Content part parsing for structured output
+
+These tools are available to all agents and provide standardized patterns for
+working with the ADK framework's state and artifact systems.
+"""
+
 import logging
 from google.adk.tools import ToolContext
 import re
