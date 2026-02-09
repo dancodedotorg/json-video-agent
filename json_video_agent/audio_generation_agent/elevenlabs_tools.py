@@ -33,8 +33,8 @@ load_dotenv()
 # Model and Voice Configuration
 MODEL = "eleven_v3"
 OUTPUT_FORMAT = "mp3_44100_128"
-SAM_VOICE_ID = "utHJATTigr4CyfAK1MPl"
-DAN_VOICE_ID = "VtuhZ4p3OdnFWQ5O4O7Y"
+SAM_VOICE_ID = "w7LY6CndrQObaTsPvYeB"
+DAN_VOICE_ID = "0sqkv877qKv8jUXFfsXj"
 ADAM_VOICE_ID = "s3TPKV1kjDlVtZbl4Ksh"
 HOPE_VOICE_ID = "tnSpp4vdxKPjI9w0GnoV"
 ALL_VOICE_IDS = {
