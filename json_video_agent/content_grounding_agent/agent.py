@@ -17,6 +17,9 @@ references in state.grounding_artifacts for use by downstream agents.
 # Google ADK Imports
 from google.adk.agents.llm_agent import Agent
 from google.adk.tools import ToolContext
+from google.adk.agents.callback_context import CallbackContext
+from google.adk.models import LlmRequest, LlmResponse
+from google.genai.types import Content, Part, Blob
 
 # Shared Imports
 from ..shared.constants import GEMINI_MODEL
@@ -26,7 +29,8 @@ from .content_grounding_tools import get_slides_data, slides_to_pdf, fetch_markd
 # Utility Imports
 import logging
 import json
-from typing import Dict, Any
+from typing import Dict, Any, Optional, Iterable
+import uuid
 
 # Tool Definitions
 
@@ -211,6 +215,64 @@ def add_to_grounding_artifacts(ref: Dict[str, Any], tool_context: ToolContext) -
     grounding_artifacts.append(ref)
     tool_context.state["grounding_artifacts"] = grounding_artifacts
 
+
+async def capture_pdf_before_model(
+    callback_context: CallbackContext,
+    llm_request: LlmRequest,
+) -> Optional[LlmResponse]:
+    """
+    - Finds any incoming PDF Part(s)
+    - Saves them as artifacts
+    - Replaces them in the request with a short text stub (optional but recommended)
+    """
+    parts = []
+    # Get last message from the user
+    if llm_request.contents and llm_request.contents[-1].role == 'user':
+        parts = llm_request.contents[-1].parts
+
+    for part in parts:
+        inline = getattr(part, "inline_data", None)
+        if not inline:
+            continue
+
+        mime = getattr(inline, "mime_type", "") or ""
+        if mime != "application/pdf":
+            continue
+
+        # Generate a stable artifact filename
+        filename = f"upload_{uuid.uuid4().hex}.pdf"
+
+        # Save as an artifact (CallbackContext supports artifact operations)
+        # (Method names are ADK-language specific; in Python it's typically save_artifact.)
+        version = await callback_context.save_artifact(filename, part)
+        pdf_ref = {
+            "type": "pdf",
+            "key": filename,
+            "version": version,
+            "mime_type": "application/pdf",
+        }
+        
+        grounding_artifacts = callback_context.state.get("grounding_artifacts", [])
+        grounding_artifacts.append(pdf_ref)
+        callback_context.state["grounding_artifacts"] = grounding_artifacts
+
+        logging.info("Saved uploaded PDF as artifact: %s (version=%s)", filename, version)
+
+        # return static confirmation of PDF upload
+        return LlmResponse(
+            content=Content(
+                parts=[Part(text=f"PDF has been uploaded to artifacts")],
+                role="model" # Assign model role to the overriding response
+            )
+        )
+
+    return None  # allow normal model call to proceed
+
+
+
+
+
+
 DESCRIPTION = 'Collects and grounds content for tutorial video creation.'
 
 INSTRUCTION = """**Role:** Content Grounding Agent
@@ -293,6 +355,7 @@ try:
         description=DESCRIPTION,
         instruction=INSTRUCTION,
         tools=[slides_id_to_artifacts, create_markdown_artifact, save_google_doc_as_pdf_artifact, list_saved_artifacts, list_current_state],
+        before_model_callback=capture_pdf_before_model
     )   
     logging.info(f"✅ Sub-agent '{content_grounding_agent.name}' created using model '{GEMINI_MODEL}'.")
 except Exception as e:

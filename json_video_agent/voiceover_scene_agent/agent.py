@@ -374,7 +374,7 @@ summary_video_agent_from_slides = Agent(
 # ----------------------------
 
 VOICEOVER_GENERATE_INSTRUCTION = """
-You generate voiceover scripts for tutorial video scenes.
+You generate voiceover scripts for instructional video scenes. Use guidance from the user to determine the type of video, intended audience, and tone to use.
 
 You will be given access to state['scenes'] (may be empty or contain partial scene data).
 For each scene you want to create, produce a 'comment' and 'speech' and return as updates.
