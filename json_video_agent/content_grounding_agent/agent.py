@@ -24,7 +24,7 @@ from google.genai.types import Content, Part, Blob
 # Shared Imports
 from ..shared.constants import GEMINI_MODEL
 from ..shared.tools import list_saved_artifacts, list_current_state, make_part
-from .content_grounding_tools import get_slides_data, slides_to_pdf, fetch_markdown_level, fetch_doc_as_pdf, extract_slides_id, extract_doc_id
+from .content_grounding_tools import get_slides_data, slides_to_pdf, fetch_markdown_level, fetch_doc_as_pdf, extract_slides_id, extract_doc_id, parse_tango_to_json
 
 # Utility Imports
 import logging
@@ -103,6 +103,81 @@ async def slides_id_to_artifacts(presentation_id: str, tool_context: ToolContext
 
     # Return a descriptive message to the agent
     return {"status": "success", **slide_reference_data}
+
+async def create_tango_artifacts(html: str, tool_context: ToolContext) -> Dict[str, Any]:
+    """
+    Generate JSON metadata and PDF artifacts from the HTML export of a Tango walkthrough
+
+    This tool parses the HTML content of the provides string, extracting the notes and png_base64 images from the HTML.
+    HTML should contain several rows of this format:
+    ```
+    <div><h3>{notes}</h3>
+        <img src="{img_src}"/>
+    </div>
+    ```
+    Then it generates:
+    1. A JSON artifact containing structured metadata on the tutorial
+    2. A PDF artifact that can be used for voiceover generation
+    
+    Both artifacts are saved to the ADK artifact store and referenced in the agent state
+    under 'tango_artifact_reference' and 'grounding_artifacts'.
+
+    Args:
+        html: a string of HTML, pasted from the Tango export.
+        tool_context: ADK ToolContext automatically injected at runtime for state/artifact management
+    
+    Returns:
+        Dict containing a status (str): "success" or "error", and additional information about the created artifacts
+    """
+
+    if not html or html == "":
+        return {"status": "error", "message": "No HTML was provided."}
+    if "<h3>" not in html: # very very basic error checking
+        return {"status": "error", "message": "HTML is missing expected <h3> elements for extracting notes"}
+
+
+    # Use helper functions to get slide info
+    tango_data = parse_tango_to_json(html)
+    # use data to render a PDF simulating slides + speaker notes
+    pdf_bytes = slides_to_pdf(tango_data)
+    
+    unique_id = uuid.uuid4().hex[:12]
+
+    # Create the slides_json artifact
+    # Requires turning the content into bytes, encoding as a Part object, then saving via tool_context
+    json_bytes = json.dumps(tango_data, indent=2, ensure_ascii=False).encode("utf-8")
+    json_part = make_part("application/json", json_bytes)
+    artifact_key_json = f"tango_{unique_id}_data.json"
+    version_json = await tool_context.save_artifact(filename=artifact_key_json, artifact=json_part)
+    
+    # Create the PDF artifact, using same pdf_bytes from above
+    pdf_part = make_part("application/pdf", pdf_bytes)
+    artifact_key_pdf = f"tango_{unique_id}.pdf"
+    version_pdf = await tool_context.save_artifact(filename=artifact_key_pdf, artifact=pdf_part)
+
+    # Both artifacts are saved - now to update state data
+    # Create a new "slide_reference" entry in state to hold the slide JSON data (needed for the base64 pngs later)
+
+    tango_reference_data = {
+        "artifact_key_pdf": artifact_key_pdf,
+        "artifact_version_pdf": version_pdf,
+        "artifact_key_json": artifact_key_json,
+        "artifact_version_json": version_json,
+    }
+    tool_context.state["tango_artifact_reference"] = tango_reference_data
+
+    # And add the pdf references to the grounding_artifacts list
+    # Because of ADK event management, the proper way to do this is retrieve the existing list, append, then re-save
+    pdf_ref = {
+        "type": "pdf",
+        "key": artifact_key_pdf,
+        "version": version_pdf,
+        "mime_type": "application/pdf",
+    }
+    add_to_grounding_artifacts(pdf_ref, tool_context)
+
+    # Return a descriptive message to the agent
+    return {"status": "success", **tango_reference_data}
 
 async def create_markdown_artifact(name: str, tool_context: ToolContext) -> Dict[str, Any]:
     """
@@ -312,7 +387,13 @@ You assist users in collecting and grounding content resources that will be used
    - Use when: User uploads a PDF file
    - Note: These should be saved with descriptive filenames
 
-5. **Other Formats**
+5. **Tango Walkthroughs**
+    - Tool: `create_tango_artifacts(html, tool_context)`
+    - Expected input: The user will identify that they want to use Tango, and then paste the HTML output from a Tango tutorial. Only the HTML output should be passed to the tool
+    - Output: creates both JSON metadata and a PDF artifact
+    - Use when: the user says they want to use Tango and provides the pasted HTML
+
+6. **Other Formats**
    - Guide users to convert to PDF or provide as Google Slides/Docs
    - Be helpful in explaining conversion options
 
@@ -321,6 +402,7 @@ You assist users in collecting and grounding content resources that will be used
 All artifacts you create are tracked in the agent state:
 - `grounding_artifacts`: List of all content artifacts (PDFs, markdown)
 - `slide_artifact_reference`: Special reference for Google Slides (includes JSON metadata)
+- `tango_artifact_reference`: Special reference when using Tango HTML
 - do NOT use list_saved_artifacts tool to verify the users resources since there may be additional saved artifacts from other user sessions. Only the grounding_artifacts list in state is relevant for this session.
 
 **Error Handling:**
@@ -354,7 +436,7 @@ try:
         name='content_grounding_agent',
         description=DESCRIPTION,
         instruction=INSTRUCTION,
-        tools=[slides_id_to_artifacts, create_markdown_artifact, save_google_doc_as_pdf_artifact, list_saved_artifacts, list_current_state],
+        tools=[slides_id_to_artifacts, create_markdown_artifact, save_google_doc_as_pdf_artifact, list_saved_artifacts, list_current_state, create_tango_artifacts],
         before_model_callback=capture_pdf_before_model
     )   
     logging.info(f"✅ Sub-agent '{content_grounding_agent.name}' created using model '{GEMINI_MODEL}'.")

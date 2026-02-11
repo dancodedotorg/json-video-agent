@@ -35,6 +35,9 @@ from xhtml2pdf import pisa
 from dotenv import load_dotenv
 load_dotenv()
 
+# Tango image extraction
+from bs4 import BeautifulSoup
+
 # Google API OAuth scopes (read-only access for Slides and Drive)
 SLIDES_SCOPES = [
     "https://www.googleapis.com/auth/presentations.readonly",  # Access presentation content
@@ -525,3 +528,59 @@ async def fetch_doc_as_pdf(export_url: str) -> Dict[str, Any]:
     except Exception as e:
         logging.exception(f"Unexpected error saving Google Doc PDF artifact: {e}")
         return {"status": "error", "message": "Unexpected error while saving the PDF artifact."}
+
+# Tango helpers
+
+def get_as_base64(url):
+    """Downloads an image from a URL and converts it to a base64 Data URI."""
+    try:
+        # Tango URLs often have complex query parameters; requests handles these well
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        
+        # Determine the mime type (usually image/png for Tango)
+        content_type = response.headers.get('content-type', 'image/png')
+        
+        # Encode to base64
+        encoded_string = base64.b64encode(response.content).decode('utf-8')
+        return f"data:{content_type};base64,{encoded_string}"
+    except Exception as e:
+        print(f"  Warning: Could not process image at {url[:50]}... Error: {e}")
+        return None
+
+def parse_tango_to_json(html_content, output_file="workflow_steps.json"):
+    logging.info("Starting Tango HTML extraction")
+    soup = BeautifulSoup(html_content, 'html.parser')
+    results = []
+    
+    # Tango exports usually wrap steps in <div> tags containing an <h3> and an <img>
+    steps_headers = soup.find_all('h3')
+    
+    for header in steps_headers:
+        description = header.get_text(strip=True)
+        
+        # Parse the step number (assumes format "1. Description")
+        try:
+            step_num = int(description.split('.')[0])
+        except (ValueError, IndexError):
+            step_num = 0
+            
+        # Find the image immediately following the header
+        img_tag = header.find_next('img')
+        
+        if img_tag and img_tag.get('src'):
+            img_url = img_tag['src']
+            logging.info(f"Processing Step {step_num}: {description[:30]}...")
+            
+            base64_img = get_as_base64(img_url)
+            
+            results.append({
+                "step": step_num,
+                "notes": description,
+                "png_base64": base64_img
+            })
+
+    
+    
+    logging.info(f"\nSuccess! {len(results)} steps saved")
+    return results

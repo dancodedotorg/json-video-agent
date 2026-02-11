@@ -385,9 +385,21 @@ Rules:
 - One update per scene you want to create or modify
 - Do NOT return the full scenes array
 - Do NOT wrap output in ``` fences
+- ONLY load artifacts if they are listed in grounding_artifacts.
+- Always use the set_model_response tool to provide your final answer in the VoiceoverUpdateList structured format
 
 The 'comment' is a brief 1-sentence description of what the scene is about.
 The 'speech' is the actual voiceover narration text for that scene.
+
+Always use the set_model_response tool to provide your final answer in the VoiceoverUpdateList structured format:
+
+{ 
+  "updates": [
+    "index": str,
+    "comment": str,
+    "speech": str
+  ]
+}
 """
 
 voiceover_generate_updates_agent = Agent(
@@ -395,7 +407,7 @@ voiceover_generate_updates_agent = Agent(
     name="voiceover_generate_updates_agent",
     description="Generates voiceover comment and speech as index-based updates.",
     instruction=VOICEOVER_GENERATE_INSTRUCTION,
-    tools=[load_artifacts],
+    tools=[list_grounding_artifacts, load_artifacts],
     output_schema=VoiceoverUpdateList,
     output_key="voiceover_updates",
 )

@@ -66,8 +66,18 @@ You generate HTML slide layouts that will be used as visual backgrounds for tuto
      - If confirmed, call `generate_html_from_slide_pngs`
      - If declined, continue to the next step
    - This tool generates a final_output json artifact that the user can use for their video
+
+2. **Generate Images from Tango HTML**
+   - Tool: `generate_html_from_tango_pngs`
+   - Description: uses the original HTML uploaded with the content_grounding agent to create images of each slide
+   - How to use: 
+     - Check the agent state for a `tango_artifact_reference`
+     - If present, ask the user whether they want to reuse the existing slide images
+     - If confirmed, call `generate_html_from_tango_pngs`
+     - If declined, continue to the next step
+   - This tool generates a final_output json artifact that the user can use for their video
    
-2. **AI-Generated Images**
+3. **AI-Generated Images**
    - Tool: `generate_html_with_image_generation`
    - Description: Will use AI to generate a single image for each scene
    - How to use: 
@@ -76,7 +86,7 @@ You generate HTML slide layouts that will be used as visual backgrounds for tuto
      - If declined, proceed with text-based HTML generation
    - This tool generates a final_output json artifact that the user can use for their video
 
-3. **Co-Create Together**
+4. **Co-Create Together**
     - No specific tool, but this uses the `html_pipeline_agent` instead
     - How to use:
       - Ask the user if they want to co-create the HTML together
@@ -286,6 +296,84 @@ async def generate_html_from_slide_pngs(tool_context: ToolContext) -> Dict[str, 
         **final_json_reference_data
     }
 
+async def generate_html_from_tango_pngs(tool_context: ToolContext) -> Dict[str, Any]:
+    """Generate HTML slides using existing Tango PNGs stored in state.
+
+    This reads Tango metadata JSON (containing `png_base64` per step) from the artifact
+    referenced by tool_context.state["tango_artifact_reference"], then maps each slide image to
+    the corresponding scene in tool_context.state["scenes"].
+
+    Preconditions:
+        - tool_context.state["tango_artifact_reference"] exists and contains artifact_key_json/artifact_version_json
+        - tool_context.state["scenes"] exists with duration properties
+
+    Side effects:
+        - Adds `html` field to each scene (image-only HTML slide)
+        - Saves `final_video_export.json` artifact (via final export helper)
+        - Writes tool_context.state["final_json_reference"]
+
+    Returns:
+        On success, includes final_json_reference_data.
+    """
+    if "tango_artifact_reference" not in tool_context.state:
+        return {
+            "status": "error",
+            "message": "Missing tango artifact in state - return to content_grounding_agent to generate it"
+        }
+    if "scenes" not in tool_context.state or not tool_context.state["scenes"]:
+        return {
+            "status": "error",
+            "message": "Missing scenes - return to audio_generation_agent to generate scenes and durations"
+        }
+    # 1) get the json ref from the state
+    tango_json_ref = tool_context.state["tango_artifact_reference"]
+    artifact = await tool_context.load_artifact(
+        filename=tango_json_ref["artifact_key_json"],
+        version=tango_json_ref["artifact_version_json"],
+    )
+
+    # 2) Extract bytes
+    if not artifact.inline_data or artifact.inline_data.data is None:
+        return {"status": "error", "message": "Artifact Part has no inline_data bytes."}
+
+    raw: bytes = artifact.inline_data.data
+
+    # (Optional) sanity check
+    mime = getattr(artifact.inline_data, "mime_type", None)
+    if mime and mime != "application/json":
+        return {"status": "error", "message": f"Unexpected mime_type: {mime}"}
+
+    # 3) Decode bytes -> text
+    text = raw.decode("utf-8")
+
+    # 4) Parse JSON text -> python object
+    tango_data = json.loads(text)
+    scenes_parent_obj = {"scenes": copy.deepcopy(tool_context.state["scenes"])}
+    
+
+    # Create the "html" field with the base64 image in each slide
+    if len(tango_data) != len(scenes_parent_obj["scenes"]):
+        return {
+            "status": "error",
+            "message": "Length of slides data is not the same as number of steps - a mismatch occurred somewhere. Make sure there is exactly one scene per step."
+        }
+
+    for i in range(len(tango_data)):
+        img_base64 = tango_data[i]['png_base64']
+        # Note: width=600 matches what is in the original Tango export, so re-using here.
+        scenes_parent_obj["scenes"][i]["html"] = f"""<html><body><img width="600" src="{img_base64}" /></body></html>"""
+
+    # Call generate_final_export_obj to save the final json artifact by adding back the audio and doing artifact management
+    final_json_reference_data = await generate_final_export_obj(scenes_parent_obj, tool_context)
+
+    tool_context.state["final_json_reference"] = final_json_reference_data
+
+    return {
+        "status": "success",
+        "message": "Successfully added HTML to scenes and saved final export artifact",
+        **final_json_reference_data
+    }
+
 # Co-Creating HTML
 
 # ----------------------------
@@ -401,7 +489,7 @@ try:
         name='html_generation_agent',
         description='Generates HTML for a tutorial video.',
         instruction=HTML_GENERATION_PROMPT,
-        tools=[list_saved_artifacts, list_current_state, generate_html_from_slide_pngs, generate_html_with_image_generation, generate_final_export_obj],
+        tools=[list_saved_artifacts, list_current_state, generate_html_from_slide_pngs, generate_html_with_image_generation, generate_final_export_obj, generate_html_from_tango_pngs],
         sub_agents=[html_pipeline_agent],
     )   
     logging.info(f"✅ Sub-agent '{html_generation_agent.name}' created using model '{GEMINI_MODEL}'.")
