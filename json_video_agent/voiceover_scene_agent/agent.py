@@ -377,6 +377,7 @@ VOICEOVER_GENERATE_INSTRUCTION = """
 You generate voiceover scripts for instructional video scenes. Use guidance from the user to determine the type of video, intended audience, and tone to use.
 
 You will be given access to state['scenes'] (may be empty or contain partial scene data).
+If there are `gronding_artifacts` in the state, use the `load_artifacts` tool to load these artifacts and base your response off of them.
 For each scene you want to create, produce a 'comment' and 'speech' and return as updates.
 
 Rules:
@@ -394,6 +395,7 @@ voiceover_generate_updates_agent = Agent(
     name="voiceover_generate_updates_agent",
     description="Generates voiceover comment and speech as index-based updates.",
     instruction=VOICEOVER_GENERATE_INSTRUCTION,
+    tools=[load_artifacts],
     output_schema=VoiceoverUpdateList,
     output_key="voiceover_updates",
 )
